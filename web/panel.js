@@ -27,6 +27,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     let page = initialView.page, source = initialView.source, detail = null;
     let filters = initialView.filters, total = 0, queryId = 0, detailId = 0, controller;
     let loading = true, desiredScroll = initialView.scrollTop, facets = {};
+    let pendingFilterScroll = initialView.filterScroll;
     let closed = false, searchTimer, closeImage, closeText;
     const heading = element("header", "soda-head");
     const headingText = element("div");
@@ -57,12 +58,14 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     const tabButtons = {};
     for (const item of kinds) {
         tabButtons[item] = button(labels[item], () => {
+            if (item === kind && !loading) return;
             saveView();
             kind = item;
             const view = viewFor(kind);
             page = view.page; filters = view.filters; source = view.source; search.value = view.q;
             categorySearch.value = view.categoryQuery; filterBox.open = view.filtersOpen;
-            facets = {}; renderFilters(facets);
+            pendingFilterScroll = view.filterScroll;
+            facets = {}; renderFilters(facets, {});
             detailId++; detail = null; raw.value = ""; copy.disabled = true; enlarge.disabled = true;
             detailTitle.textContent = "条目原文";
             if (selection[kind]) inspect(selection[kind]);
@@ -87,11 +90,20 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     sources.addEventListener("change", () => {source = sources.value; page = 1; query();});
     const refresh = button("刷新库", async () => {
         refresh.disabled = true;
+        const scroll = loading ? desiredScroll : grid.scrollTop;
+        desiredScroll = scroll;
         invalidateBrowse();
         const ticket = queryId;
-        try {await json(prefix + "/reload", {method: "POST"}); await query(); await checkSaved();}
+        try {
+            await json(prefix + "/reload", {method: "POST"});
+            if (closed || ticket !== queryId) return;
+            await query(scroll); await checkSaved();
+        }
         catch (error) {
-            if (!closed && ticket === queryId) {status.textContent = error.message; message(error.message);}
+            if (!closed && ticket === queryId) {
+                grid.setAttribute('aria-busy', 'false');
+                status.textContent = error.message; message(error.message);
+            }
         }
         finally {refresh.disabled = false;}
     });
@@ -116,7 +128,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     categorySearch.type = "search"; categorySearch.placeholder = "查找作品或分类，例如：明日方舟";
     categorySearch.setAttribute("aria-label", "查找作品或分类");
     categorySearch.value = initialView.categoryQuery;
-    categorySearch.addEventListener("input", () => renderFilters(facets));
+    categorySearch.addEventListener("input", () => {pendingFilterScroll = null; renderFilters(facets, {});});
     const filterFields = element("div", "soda-filter-fields");
     filterBox.append(categorySearch, filterFields);
     const activeFilters = element("div", "soda-active-filters"); activeFilters.hidden = true;
@@ -207,12 +219,13 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     query(initialView.scrollTop); checkSaved(); search.focus();
 
     function viewFor(item) {
-        return {page: 1, source: "", filters: {}, q: "", categoryQuery: "", scrollTop: 0, filtersOpen: false, ...browseState[item]};
+        return {page: 1, source: "", filters: {}, q: "", categoryQuery: "", scrollTop: 0, filtersOpen: false, filterScroll: {}, ...browseState[item]};
     }
     function saveView() {
         browseState.kind = kind;
         browseState[kind] = {page, source, filters, q: search.value, categoryQuery: categorySearch.value,
-            scrollTop: loading ? desiredScroll : grid.scrollTop, filtersOpen: filterBox.open};
+            scrollTop: loading ? desiredScroll : grid.scrollTop, filtersOpen: filterBox.open,
+            filterScroll: pendingFilterScroll ?? captureFilterScroll()};
     }
 
     async function json(url, options) {
@@ -287,7 +300,19 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         for (const [name, values] of Object.entries(filters)) for (const value of values) result.append(name, value);
         return result;
     }
-    function renderFilters(facets) {
+    function captureFilterScroll() {
+        return {fields: filterFields.scrollTop, category: filterFields.querySelector('.soda-category-list')?.scrollTop ?? 0,
+            selects: Object.fromEntries([...filterFields.querySelectorAll('select')].map(el => [el.dataset.filter, el.scrollTop]))};
+    }
+    function restoreFilterScroll(scroll) {
+        const list = filterFields.querySelector('.soda-category-list');
+        if (list) list.scrollTop = scroll.category ?? 0;
+        for (const el of filterFields.querySelectorAll('select')) el.scrollTop = scroll.selects?.[el.dataset.filter] ?? 0;
+        filterFields.scrollTop = scroll.fields ?? 0;
+    }
+    function renderFilters(facets, scroll = captureFilterScroll()) {
+        const focused = filterFields.contains(document.activeElement) ? document.activeElement : null;
+        const parentScroll = dialog.scrollTop;
         filterFields.replaceChildren();
         activeFilters.replaceChildren();
         for (const value of filters.category ?? []) {
@@ -323,6 +348,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             }
             const field = element("label", "soda-field", label);
             const select = element("select"); select.multiple = true; select.size = 4;
+            select.dataset.filter = name;
             select.setAttribute("aria-label", label);
             for (const [value, count] of values.sort((a, b) => a[0].localeCompare(b[0]))) {
                 const option = element("option", "", `${value} (${count})`);
@@ -333,10 +359,20 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             field.append(select); filterFields.append(field);
         }
         filterFields.append(button("清除筛选", () => {filters = {}; source = ""; categorySearch.value = ""; page = 1; query();}));
+        if (focused) {
+            const replacement = [...filterFields.querySelectorAll('input, select, button')].find(el =>
+                el.tagName === focused.tagName && (el.tagName === 'BUTTON' ? el.textContent === focused.textContent :
+                    el.tagName === 'SELECT' ? el.dataset.filter === focused.dataset.filter : el.value === focused.value));
+            (replacement ?? filterBox.querySelector('summary')).focus({preventScroll: true});
+        }
+        restoreFilterScroll(scroll);
+        dialog.scrollTop = parentScroll;
     }
     function invalidateBrowse() {
         controller?.abort(); queryId++; detailId++; total = 0;
         loading = true;
+        grid.style.setProperty('--soda-loading-height', `${grid.getBoundingClientRect().height}px`);
+        grid.setAttribute('aria-busy', 'true');
         grid.replaceChildren();
         previous.disabled = true; next.disabled = true; random.disabled = true;
         pageText.textContent = "—";
@@ -358,7 +394,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             sources.replaceChildren(element("option", "", "全部数据源")); sources.firstChild.value = "";
             for (const s of result.sources) {const o = element("option", "", s.label); o.value = s.id; sources.append(o);}
             sources.value = source;
-            facets = result.facets; renderFilters(facets);
+            facets = result.facets; renderFilters(facets, pendingFilterScroll ?? captureFilterScroll()); pendingFilterScroll = null;
             grid.replaceChildren();
             for (const entry of result.entries) {
                 const card = button("", async () => {
@@ -371,12 +407,15 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
                 card.append(mediaFor(entry, result.revision), element("strong", "", entry.title), element("span", "soda-category", entry.category));
                 grid.append(card);
             }
+            grid.setAttribute('aria-busy', 'false');
             markSelected(); grid.scrollTop = scrollTop; loading = false;
             warnings.replaceChildren();
             for (const s of result.sources) warnings.append(element("p", "", `${s.label}：${s.status === "ready" ? `${s.count} 条` : "不可用"}`));
             for (const warning of result.warnings) warnings.append(element("p", "soda-warning", warning));
         } catch (error) {
-            if (error.name !== "AbortError" && !closed && ticket === queryId) status.textContent = error.message;
+            if (error.name !== "AbortError" && !closed && ticket === queryId) {
+                grid.setAttribute('aria-busy', 'false'); status.textContent = error.message;
+            }
         }
     }
     async function checkSaved() {

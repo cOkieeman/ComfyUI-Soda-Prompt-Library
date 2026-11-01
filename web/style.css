@@ -95,6 +95,7 @@
     .soda-library { padding: 12px; overflow-y: auto; }
     .soda-body { display: flex; flex-direction: column; flex: none; }
     .soda-grid { flex: none; max-height: 360px; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); }
+    .soda-grid[aria-busy="true"] { min-height: var(--soda-loading-height, 0px); }
     .soda-side { border-left: 0; border-top: 1px solid var(--sl-line); padding: 16px 0 0; overflow: visible; }
     .soda-side-scroll { flex: none; overflow: visible; }
     .soda-text-dialog { padding: 12px; }

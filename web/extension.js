@@ -1,10 +1,10 @@
 import {app} from "../../scripts/app.js";
 import {api} from "../../scripts/api.js";
-import {openLibrary} from "./panel.js?v=0.1.3";
+import {openLibrary} from "./panel.js?v=0.1.4";
 
 const stylesheet = document.createElement("link");
 stylesheet.rel = "stylesheet";
-stylesheet.href = new URL("./style.css?v=0.1.3", import.meta.url).href;
+stylesheet.href = new URL("./style.css?v=0.1.4", import.meta.url).href;
 document.head.append(stylesheet);
 
 app.registerExtension({

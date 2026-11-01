@@ -136,6 +136,7 @@ test('刷新请求失败后显示错误而不是永久加载', async () => {
     await tick(); button('刷新库').click(); await tick();
     assert(document.querySelector('.soda-status').textContent.includes('读取失败'), '刷新失败后仍显示正在读取');
     assert(!button('刷新库').disabled, '刷新按钮永久禁用');
+    assert(document.querySelector('.soda-grid').getAttribute('aria-busy') === 'false', '刷新失败后仍标记为加载中');
 });
 
 test('页签分别记住搜索、页码与重新打开的位置', async () => {
@@ -205,6 +206,79 @@ test('切换页签和重新打开恢复列表滚动位置', async () => {
     assert(grid.scrollTop === 300, '切换页签丢失滚动位置');
     closePanel(); mount({request,browseState}); await tick();
     assert(document.querySelector('.soda-grid').scrollTop === 300, '重新打开丢失滚动位置');
+});
+
+async function mountScrollFixture(options = {}) {
+    const base = mount(); closePanel();
+    const text = Array.from({length:60},(_,i)=>`Line ${i}: adult traveler in the garden.`).join('\n');
+    const request = async url => {
+        await options.beforeReply?.(url);
+        const result = await base.request(url); const data = await result.json();
+        if (data.entries) {
+            data.entries = Array.from({length:60},(_,i)=>({...entry('character',String(i)),text}));
+            data.facets = {category:Object.fromEntries(Array.from({length:100},(_,i)=>[`作品/${String(i).padStart(3,'0')}`,1]))};
+        } else if (data.text) data.text = text;
+        return response(data);
+    };
+    const state = mount({...options,request}); await tick();
+    return state;
+}
+test('勾选靠后的分类后，分类列表不回顶且键盘焦点保留', async () => {
+    await mountScrollFixture(); document.querySelector('.soda-filters').open = true;
+    const list = document.querySelector('.soda-category-list'); list.scrollTop = 900;
+    const check = list.querySelectorAll('input')[32]; check.focus({preventScroll:true});
+    const before = list.scrollTop; check.click(); await tick();
+    assert(document.querySelector('.soda-category-list').scrollTop === before, '勾选后分类列表回顶');
+    assert(document.activeElement?.value === check.value, '勾选后键盘焦点丢失');
+});
+test('替换选中卡片时，右侧长预览不回顶', async () => {
+    await mountScrollFixture(); cards()[0].click(); await tick();
+    const side = document.querySelector(innerWidth <= 760 ? '.soda-library' : '.soda-side-scroll'); side.scrollTop = 350;
+    const before = side.scrollTop; cards()[1].click(); await tick();
+    assert(before > 0 && side.scrollTop === before, `右侧滚动从 ${before} 跳到 ${side.scrollTop}`);
+});
+test('刷新未变更的库时保留当前列表滚动位置', async () => {
+    await mountScrollFixture(); const grid = document.querySelector('.soda-grid'); grid.scrollTop = 500;
+    const before = grid.scrollTop; button('刷新库').click(); await tick(); await tick();
+    assert(grid.scrollTop === before, `刷新后列表从 ${before} 回到 ${grid.scrollTop}`);
+});
+test('关闭展开预览后保持父面板滚动位置', async () => {
+    await mountScrollFixture(); cards()[0].click(); await tick();
+    const side = document.querySelector(innerWidth <= 760 ? '.soda-library' : '.soda-side-scroll');
+    button('展开预览').focus({preventScroll:true}); side.scrollTop = 400;
+    const before = side.scrollTop; button('展开预览').click();
+    document.querySelector('.soda-text-dialog').dispatchEvent(new Event('cancel',{cancelable:true}));
+    assert(side.scrollTop === before, `关闭预览后从 ${before} 跳到 ${side.scrollTop}`);
+});
+test('分类滚动位置在切换页签后恢复', async () => {
+    await mountScrollFixture(); document.querySelector('.soda-filters').open = true;
+    document.querySelector('.soda-category-list').scrollTop = 900;
+    const before = document.querySelector('.soda-category-list').scrollTop;
+    button('服饰').click(); await tick(); button('角色').click(); await tick();
+    assert(document.querySelector('.soda-category-list').scrollTop === before, '返回页签时分类列表回顶');
+});
+test('翻页不会让外层弹窗意外回顶', async () => {
+    await mountScrollFixture();
+    const panel = document.querySelector('.soda-library');
+    panel.scrollTop = 350;
+    const before = panel.scrollTop;
+    button('下一页').click(); await tick();
+    assert(panel.scrollTop === before, `翻页后外层从 ${before} 跳到 ${panel.scrollTop}`);
+});
+test('重复点击当前页签不重建列表或改变焦点', async () => {
+    await mountScrollFixture(); const card = cards()[8]; const grid = document.querySelector('.soda-grid');
+    grid.scrollTop = 400; button('角色').click(); await tick();
+    assert(cards()[8] === card && grid.scrollTop === 400, '当前页签被无意义重新加载');
+});
+test('慢速翻页等待期间也不让弹窗回顶', async () => {
+    let finish;
+    await mountScrollFixture({beforeReply: url => url.includes('page=2') ? new Promise(resolve => {finish = resolve;}) : undefined});
+    const panel = document.querySelector('.soda-library'); panel.scrollTop = 300;
+    const before = panel.scrollTop;
+    button('下一页').click(); await tick();
+    assert(panel.scrollTop === before, `等待响应时弹窗从 ${before} 跳到 ${panel.scrollTop}`);
+    finish(); await tick();
+    assert(panel.scrollTop === before, '响应完成后弹窗位置变化');
 });
 
 document.querySelector('#run').onclick = async () => {
