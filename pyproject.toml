@@ -3,7 +3,17 @@ name = "comfyui-soda-prompt-library"
 version = "0.1.4"
 description = "Local prompt browsing, composition and editable snapshots for ComfyUI"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
 dependencies = []
+
+[project.urls]
+Repository = "https://github.com/cOkieeman/ComfyUI-Soda-Prompt-Library"
+
+[tool.comfy]
+PublisherId = "cokieeman"
+DisplayName = "Soda Prompt Library"
+Icon = ""
+includes = []
 
 [tool.ruff]
 line-length = 100
