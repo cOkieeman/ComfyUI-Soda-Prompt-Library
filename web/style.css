@@ -33,7 +33,7 @@
 .soda-filters summary, .soda-diagnostics summary { cursor: pointer; color: var(--sl-muted); }
 .soda-filter-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; max-height: 180px; overflow: auto; }
 .soda-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.soda-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); align-content: start; gap: 12px; overflow-y: auto; flex: 1; padding: 3px; }
+.soda-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); grid-auto-rows: max-content; align-items: start; align-content: start; gap: 12px; overflow-y: auto; flex: 1; min-height: 0; padding: 3px; }
 .soda-library .soda-card { padding: 0 0 9px; overflow: hidden; text-align: left; min-width: 0; }
 .soda-card[aria-pressed="true"] { outline: 2px solid var(--sl-accent); outline-offset: -2px; }
 .soda-card strong, .soda-card .soda-category { display: block; padding: 5px 9px 0; overflow-wrap: anywhere; }
@@ -42,17 +42,29 @@
 .soda-media img { width: 100%; height: 100%; object-fit: contain; position: absolute; inset: 0; background: #191d23; }
 .soda-placeholder { color: #7f8a9b; font-size: 12px; }
 .soda-pager { display: flex; align-items: center; justify-content: center; gap: 14px; }
-.soda-side { border-left: 1px solid var(--sl-line); padding-left: 20px; display: flex; flex-direction: column; gap: 9px; overflow-y: auto; min-height: 0; }
+.soda-side { border-left: 1px solid var(--sl-line); padding-left: 20px; display: flex; flex-direction: column; gap: 9px; overflow: hidden; min-height: 0; min-width: 0; }
+.soda-side-scroll { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; }
+.soda-side-scroll > * { flex-shrink: 0; }
+.soda-side-footer { flex: none; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--sl-line); }
 .soda-selection-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 5px 0; }
 .soda-selection-row span { overflow-wrap: anywhere; }
 .soda-selection-row button { font-size: 12px; padding: 3px 6px; }
 .soda-library textarea { width: 100%; padding: 10px; resize: vertical; font-size: 12px; line-height: 1.6; }
 .soda-raw { min-height: 100px; }
-.soda-preview { min-height: 125px; flex: 1 0 125px; }
+.soda-library .soda-preview { margin: 0; min-height: 140px; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.7 system-ui, sans-serif; background: var(--sl-panel); border: 1px solid var(--sl-line); border-radius: 7px; user-select: text; }
+.soda-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.soda-raw-details summary { cursor: pointer; color: var(--sl-muted); overflow-wrap: anywhere; }
+.soda-raw-details textarea { margin-top: 8px; }
 .soda-feedback { color: var(--sl-accent); font-size: 12px; min-height: 18px; }
 .soda-detail-actions { display: flex; gap: 8px; }
 .soda-detail-actions button { flex: 1; }
-.soda-side > .soda-primary { position: sticky; bottom: 0; z-index: 1; flex-shrink: 0; }
+.soda-text-dialog { color-scheme: dark; color: #edf0f4; background: #202329; border: 1px solid #424851; border-radius: 12px; padding: 20px; box-sizing: border-box; width: min(1000px, calc(100vw - 40px)); height: min(800px, calc(100vh - 40px)); max-width: none; max-height: none; }
+.soda-text-dialog[open] { display: flex; flex-direction: column; gap: 16px; }
+.soda-text-dialog::backdrop { background: #000b; }
+.soda-text-head { display: flex; align-items: center; gap: 12px; flex: none; }
+.soda-text-head h3 { font: 600 17px system-ui; margin: 0 auto 0 0; }
+.soda-text-head button { flex: none; padding: 8px 12px; color: #edf0f4; background: #292d34; border: 1px solid #424851; border-radius: 6px; cursor: pointer; }
+.soda-text-dialog .soda-full-text { margin: 0; flex: 1; min-height: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: 15px/1.8 system-ui, sans-serif; padding: 16px; background: #191d23; border-radius: 8px; }
 .soda-image-dialog { color-scheme: dark; color: #edf0f4; background: #202329; border: 1px solid #424851; border-radius: 12px; padding: 16px; max-width: 92vw; max-height: 92vh; }
 .soda-image-dialog::backdrop { background: #000c; }
 .soda-image-dialog h3 { display: inline; font: 500 16px system-ui; }
@@ -68,5 +80,8 @@
     .soda-body { display: flex; flex-direction: column; flex: none; }
     .soda-grid { flex: none; max-height: 360px; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); }
     .soda-side { border-left: 0; border-top: 1px solid var(--sl-line); padding: 16px 0 0; overflow: visible; }
+    .soda-side-scroll { flex: none; overflow: visible; }
+    .soda-text-dialog { padding: 12px; }
+    .soda-text-head { flex-wrap: wrap; }
     .soda-head p { font-size: 12px; }
 }

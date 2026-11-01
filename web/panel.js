@@ -24,7 +24,7 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     const selection = restore(saved);
     let kind = "character", page = 1, source = "", detail = null;
     let filters = {}, total = 0, queryId = 0, detailId = 0, controller;
-    let closed = false, searchTimer, closeImage;
+    let closed = false, searchTimer, closeImage, closeText;
     const heading = element("header", "soda-head");
     const headingText = element("div");
     headingText.append(element("h2", "", "Soda 提示词库"), element("p", "soda-muted", "选好素材，预览后载入。原文保留，正文由你修改。"));
@@ -34,6 +34,7 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
         clearTimeout(searchTimer);
         controller?.abort();
         closeImage?.();
+        closeText?.();
         dialog.close();
         dialog.remove();
         onClose();
@@ -103,10 +104,12 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     browse.append(filterBox, status, grid, pager);
 
     const side = element("aside", "soda-side");
-    side.append(element("h3", "", "当前组合"));
+    const sideScroll = element("div", "soda-side-scroll");
+    sideScroll.append(element("h3", "", "当前组合"));
     const selected = element("div", "soda-selected");
     const sourceStatus = element("p", "soda-muted");
-    const detailTitle = element("h3", "", "条目原文");
+    const rawDetails = element("details", "soda-raw-details");
+    const detailTitle = element("summary", "", "条目原文");
     const raw = element("textarea", "soda-raw"); raw.readOnly = true;
     raw.setAttribute("aria-label", "条目原文"); raw.placeholder = "点选卡片，查看完整原文";
     const copy = button("复制提示词", async () => {
@@ -130,8 +133,29 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
         document.body.append(imageDialog); imageDialog.showModal();
     }); enlarge.disabled = true;
     const detailActions = element("div", "soda-detail-actions"); detailActions.append(copy, enlarge);
-    const preview = element("textarea", "soda-preview"); preview.readOnly = true;
-    preview.setAttribute("aria-label", "合并预览"); preview.placeholder = "角色 → 服饰 → 内容，可跳过任一类";
+    rawDetails.append(detailTitle, raw);
+    const preview = element("pre", "soda-preview");
+    preview.setAttribute("aria-label", "合并预览"); preview.tabIndex = 0;
+    const expand = button("展开预览", () => {
+        const value = compose(selection);
+        if (!value) return;
+        const textDialog = element("dialog", "soda-text-dialog");
+        textDialog.setAttribute("aria-label", "完整合并预览");
+        const textHeading = element("header", "soda-text-head");
+        const fullText = element("pre", "soda-full-text", value); fullText.tabIndex = 0;
+        fullText.setAttribute("aria-label", "完整正文");
+        closeText = () => {textDialog.close(); textDialog.remove(); closeText = null; expand.focus();};
+        const copyAll = button("复制全文", async () => {
+            try {await navigator.clipboard.writeText(value); copyAll.textContent = "已复制";}
+            catch {copyAll.textContent = "请选中文字后按 Ctrl+C"; fullText.focus();}
+        });
+        textHeading.append(element("h3", "", "完整合并预览"), copyAll, button("关闭预览", () => closeText?.()));
+        textDialog.addEventListener("cancel", event => {event.preventDefault(); closeText?.();});
+        textDialog.append(textHeading, fullText);
+        document.body.append(textDialog); textDialog.showModal();
+    });
+    const previewHeading = element("div", "soda-preview-heading");
+    previewHeading.append(element("h3", "", "合并预览"), expand);
     const feedback = element("p", "soda-feedback"); feedback.setAttribute("role", "status");
     const confirmation = element("div", "soda-confirm"); confirmation.hidden = true;
     confirmation.append(element("p", "", "将整段替换当前正文，包括你的手改。"), button("确认替换正文", commit, "soda-primary"), button("保留当前正文", () => {confirmation.hidden = true;}));
@@ -140,7 +164,10 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
         if (getText() && getText() !== compose(selection)) confirmation.hidden = false;
         else commit();
     }, "soda-primary");
-    side.append(selected, sourceStatus, detailTitle, raw, detailActions, element("h3", "", "合并预览"), preview, feedback, confirmation, load);
+    sideScroll.append(selected, sourceStatus, detailActions, rawDetails, previewHeading, preview);
+    const sideFooter = element("div", "soda-side-footer");
+    sideFooter.append(feedback, confirmation, load);
+    side.append(sideScroll, sideFooter);
     body.append(browse, side);
     const diagnostics = element("details", "soda-diagnostics");
     diagnostics.append(element("summary", "", "数据源状态"));
@@ -165,7 +192,9 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
             if (selection[item]) row.append(button("移除", () => {delete selection[item]; updateSelection(); markSelected();}));
             selected.append(row);
         }
-        preview.value = compose(selection); load.disabled = !preview.value;
+        const value = compose(selection);
+        preview.textContent = value || "角色 → 服饰 → 内容，可跳过任一类";
+        load.disabled = !value; expand.disabled = !value;
         confirmation.hidden = true;
     }
     function markSelected() {
