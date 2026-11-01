@@ -99,6 +99,30 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(self.lib.query({})["total"], 0)
         self.assertTrue(old["text"])
 
+    def test_category_branches_include_children_not_similar_names(self):
+        for i, label in enumerate(("Series", "Series/A", "Series/A/Child", "SeriesTwo", "Other")):
+            self.write([self.row(f"item_{i}", scene="garden")], f"{i}.json", label=label)
+        exact = self.lib.query({"category": ["Series"]})
+        self.assertEqual(exact["total"], 1)
+        params = {"category": ["Series", "Other"], "category_mode": "branch"}
+        result = self.lib.query(params)
+        self.assertTrue(result["category_tree"])
+        self.assertEqual(result["total"], 4)
+        self.assertEqual(self.lib.query({**params, "scene": ["missing"]})["total"], 0)
+        self.assertIn(
+            self.lib.query({**params, "random": "1"})["category"],
+            {"Series", "Series/A", "Series/A/Child", "Other"},
+        )
+
+    def test_category_facets_follow_selected_source(self):
+        self.write([self.row()])
+        self.config["json_sources"].append({**self.config["json_sources"][0], "id": "other"})
+        self.write_config()
+        self.assertEqual(self.lib.query({})["facets"]["category"]["庭院"], 2)
+        result = self.lib.query({"source": "other"})
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["facets"]["category"]["庭院"], 1)
+
     def test_preview_escape_is_blocked_without_dropping_text(self):
         self.write([self.row(preview="../outside.png")])
         self.assertEqual(self.lib.query({})["total"], 1)

@@ -68,6 +68,19 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.get("/soda_prompt_library/preview", params={"key": key})
             self.assertEqual(response.status, 404)
 
+    async def test_category_branch_query_over_http(self):
+        self.data["label"] = "Daily/Garden"
+        self.path.write_text(json.dumps(self.data), encoding="utf-8")
+        await self.client.post("/soda_prompt_library/reload")
+        response = await self.client.get(
+            "/soda_prompt_library/index?category=Daily&category=Other&category_mode=branch"
+        )
+        result = await response.json()
+        self.assertEqual(result["total"], 2)
+        self.assertTrue(result["category_tree"])
+        response = await self.client.get("/soda_prompt_library/index?category=Daily")
+        self.assertEqual((await response.json())["total"], 0)
+
     async def test_reload_returns_latest_library_without_mutating_old_response(self):
         response = await self.client.get("/soda_prompt_library/entry?key=local:a")
         old = await response.json()

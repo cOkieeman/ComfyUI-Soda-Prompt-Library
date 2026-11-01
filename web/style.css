@@ -28,18 +28,29 @@
 .soda-tabs button[aria-pressed="true"], .soda-library .soda-primary { background: var(--sl-accent); color: #152a27; border-color: var(--sl-accent); }
 .soda-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
 .soda-search { flex: 1 1 220px; }
-.soda-body { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; flex: 1; min-height: 0; }
+.soda-body { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; gap: 18px; flex: 1; min-height: 0; }
 .soda-browse { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
 .soda-filters summary, .soda-diagnostics summary { cursor: pointer; color: var(--sl-muted); }
 .soda-filter-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; max-height: 180px; overflow: auto; }
 .soda-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.soda-category-search { width: 100%; margin-top: 8px; }
-.soda-category-field { grid-column: 1 / -1; min-width: 0; }
-.soda-category-list { max-height: 125px; overflow-y: auto; margin-top: 5px; }
-.soda-category-option { display: flex; align-items: start; gap: 8px; padding: 5px 3px; cursor: pointer; font-size: 12px; }
-.soda-category-option:hover { background: var(--sl-panel); }
-.soda-category-option input { flex: none; margin: 3px 0 0; accent-color: var(--sl-accent); }
-.soda-category-option span:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.soda-categories { display: flex; flex-direction: column; gap: 9px; min-height: 0; min-width: 0; border-right: 1px solid var(--sl-line); padding-right: 12px; }
+.soda-category-heading { display: flex; align-items: center; justify-content: space-between; }
+.soda-category-heading button { font-size: 12px; padding: 3px 8px; }
+.soda-category-search { width: 100%; font-size: 12px !important; }
+.soda-category-all { text-align: left; }
+.soda-category-all[aria-pressed="true"], .soda-category-multi[aria-pressed="true"] { color: var(--sl-accent); border-color: var(--sl-accent); }
+.soda-category-list { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.soda-category-option { display: flex; align-items: center; gap: 3px; padding-left: calc(min(var(--depth), 5) * 12px); min-height: 34px; }
+.soda-category-option:hover, .soda-category-option.is-selected { background: var(--sl-panel); border-radius: 5px; }
+.soda-category-option input { flex: none; margin: 0 3px; accent-color: var(--sl-accent); }
+.soda-library .soda-category-toggle { flex: none; width: 22px; padding: 4px 0; background: transparent; border-color: transparent; }
+.soda-category-spacer { width: 8px; flex: none; }
+.soda-library .soda-category-name { display: flex; flex: 1; min-width: 0; align-items: center; gap: 6px; text-align: left; padding: 6px 4px; font-size: 13px; border: 0; background: transparent; }
+.soda-category-name[aria-pressed="true"] { color: var(--sl-accent); }
+.soda-category-caption { display: flex; flex: 1; min-width: 0; flex-direction: column; overflow-wrap: anywhere; }
+.soda-category-caption small { font-size: 10px; line-height: 1.4; }
+.soda-category-count { flex: none; color: var(--sl-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.soda-category-empty { color: var(--sl-muted); padding: 12px 4px; font-size: 12px; }
 .soda-active-filters { display: flex; flex-wrap: wrap; gap: 5px; max-height: 64px; overflow-y: auto; flex: none; }
 .soda-active-filters button { font-size: 12px; padding: 3px 7px; max-width: 100%; overflow-wrap: anywhere; }
 .soda-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); grid-auto-rows: max-content; align-items: start; align-content: start; gap: 12px; overflow-y: auto; flex: 1; min-height: 0; padding: 3px; }
@@ -91,9 +102,15 @@
 .soda-confirm button { margin-top: 8px; }
 .soda-diagnostics { font-size: 12px; max-height: 130px; overflow-y: auto; }
 .soda-warning { color: #e5ba8e; }
+@media (min-width: 761px) and (max-width: 1050px) {
+    .soda-library { padding: 16px; }
+    .soda-body { grid-template-columns: 175px minmax(0, 1fr) 240px; gap: 12px; }
+    .soda-side { padding-left: 12px; }
+}
 @media (max-width: 760px) {
     .soda-library { padding: 12px; overflow-y: auto; }
     .soda-body { display: flex; flex-direction: column; flex: none; }
+    .soda-categories { height: 260px; flex: none; border-right: 0; border-bottom: 1px solid var(--sl-line); padding: 0 0 12px; }
     .soda-grid { flex: none; max-height: 360px; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); }
     .soda-grid[aria-busy="true"] { min-height: var(--soda-loading-height, 0px); }
     .soda-side { border-left: 0; border-top: 1px solid var(--sl-line); padding: 16px 0 0; overflow: visible; }

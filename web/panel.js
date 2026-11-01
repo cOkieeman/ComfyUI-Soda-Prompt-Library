@@ -1,4 +1,5 @@
 import {compose, kinds, labels, restore, snapshot} from "./model.js";
+import {createCategories} from "./categories.js?v=0.2.0";
 
 const prefix = "/soda_prompt_library";
 const filterLabels = {family: "族", undress: "着装状态", intensity: "强度", scene: "场景", camera: "机位", focal: "焦段"};
@@ -28,6 +29,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     let filters = initialView.filters, total = 0, queryId = 0, detailId = 0, controller;
     let loading = true, desiredScroll = initialView.scrollTop, facets = {};
     let pendingFilterScroll = initialView.filterScroll;
+    let categoryTreeSupported = false;
     let closed = false, searchTimer, closeImage, closeText;
     const heading = element("header", "soda-head");
     const headingText = element("div");
@@ -43,7 +45,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         dialog.close();
         dialog.remove();
         onClose();
-        oldFocus?.focus();
+        oldFocus?.focus({preventScroll: true});
     };
     heading.append(headingText, button("关闭", close));
     dialog.addEventListener("cancel", event => {event.preventDefault(); close();});
@@ -63,7 +65,8 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             kind = item;
             const view = viewFor(kind);
             page = view.page; filters = view.filters; source = view.source; search.value = view.q;
-            categorySearch.value = view.categoryQuery; filterBox.open = view.filtersOpen;
+            categories.setState(view.categoryView); filterBox.open = view.filtersOpen;
+            filterBox.hidden = kind !== "content";
             pendingFilterScroll = view.filterScroll;
             facets = {}; renderFilters(facets, {});
             detailId++; detail = null; raw.value = ""; copy.disabled = true; enlarge.disabled = true;
@@ -87,7 +90,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         searchTimer = setTimeout(() => query(), 200);
     });
     const sources = element("select"); sources.setAttribute("aria-label", "数据源");
-    sources.addEventListener("change", () => {source = sources.value; page = 1; query();});
+    sources.addEventListener("change", () => {source = sources.value; filters.category = []; page = 1; query();});
     const refresh = button("刷新库", async () => {
         refresh.disabled = true;
         const scroll = loading ? desiredScroll : grid.scrollTop;
@@ -121,16 +124,14 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
 
     const body = element("div", "soda-body");
     const browse = element("section", "soda-browse");
+    const categories = createCategories({state: initialView.categoryView,
+        onChange: picked => {filters.category = picked; page = 1; query();}, onMessage: message});
     const filterBox = element("details", "soda-filters");
-    filterBox.append(element("summary", "", "分类与筛选（可多选）"));
+    filterBox.append(element("summary", "", "更多筛选"));
     filterBox.open = initialView.filtersOpen;
-    const categorySearch = element("input", "soda-category-search");
-    categorySearch.type = "search"; categorySearch.placeholder = "查找作品或分类，例如：明日方舟";
-    categorySearch.setAttribute("aria-label", "查找作品或分类");
-    categorySearch.value = initialView.categoryQuery;
-    categorySearch.addEventListener("input", () => {pendingFilterScroll = null; renderFilters(facets, {});});
+    filterBox.hidden = kind !== "content";
     const filterFields = element("div", "soda-filter-fields");
-    filterBox.append(categorySearch, filterFields);
+    filterBox.append(filterFields);
     const activeFilters = element("div", "soda-active-filters"); activeFilters.hidden = true;
     const status = element("p", "soda-status"); status.setAttribute("aria-live", "polite");
     const grid = element("div", "soda-grid"); grid.setAttribute("aria-label", "素材卡片");
@@ -166,7 +167,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         img.addEventListener("load", () => {imageMessage.textContent = "";});
         img.addEventListener("error", () => {imageMessage.textContent = "图片不存在或无法读取，提示词仍可复制。"; img.hidden = true;});
         img.src = prefix + "/preview?" + new URLSearchParams({key: entry.key, v: entry.version ?? ""});
-        closeImage = () => {imageDialog.close(); imageDialog.remove(); closeImage = null; trigger?.focus();};
+        closeImage = () => {imageDialog.close(); imageDialog.remove(); closeImage = null; trigger?.focus({preventScroll: true});};
         imageDialog.addEventListener("cancel", event => {event.preventDefault(); closeImage?.();});
         imageDialog.append(imageTitle, button("关闭大图", () => closeImage?.()), img, imageMessage);
         document.body.append(imageDialog); imageDialog.showModal();
@@ -183,7 +184,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         const textHeading = element("header", "soda-text-head");
         const fullText = element("pre", "soda-full-text", value); fullText.tabIndex = 0;
         fullText.setAttribute("aria-label", "完整正文");
-        closeText = () => {textDialog.close(); textDialog.remove(); closeText = null; expand.focus();};
+        closeText = () => {textDialog.close(); textDialog.remove(); closeText = null; expand.focus({preventScroll: true});};
         const copyAll = button("复制全文", async () => {
             try {await navigator.clipboard.writeText(value); copyAll.textContent = "已复制";}
             catch {copyAll.textContent = "请选中文字后按 Ctrl+C"; fullText.focus();}
@@ -207,7 +208,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     const sideFooter = element("div", "soda-side-footer");
     sideFooter.append(feedback, confirmation, load);
     side.append(sideScroll, sideFooter);
-    body.append(browse, side);
+    body.append(categories.element, browse, side);
     const diagnostics = element("details", "soda-diagnostics");
     diagnostics.append(element("summary", "", "数据源状态"));
     const warnings = element("div"); diagnostics.append(warnings);
@@ -219,11 +220,13 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     query(initialView.scrollTop); checkSaved(); search.focus();
 
     function viewFor(item) {
-        return {page: 1, source: "", filters: {}, q: "", categoryQuery: "", scrollTop: 0, filtersOpen: false, filterScroll: {}, ...browseState[item]};
+        const stored = browseState[item] ?? {};
+        return {page: 1, source: "", filters: {}, q: "", scrollTop: 0, filtersOpen: false, filterScroll: {},
+            ...stored, categoryView: stored.categoryView ?? {q: stored.categoryQuery ?? "", scrollTop: stored.filterScroll?.category ?? 0}};
     }
     function saveView() {
         browseState.kind = kind;
-        browseState[kind] = {page, source, filters, q: search.value, categoryQuery: categorySearch.value,
+        browseState[kind] = {page, source, filters, q: search.value, categoryView: categories.getState(),
             scrollTop: loading ? desiredScroll : grid.scrollTop, filtersOpen: filterBox.open,
             filterScroll: pendingFilterScroll ?? captureFilterScroll()};
     }
@@ -297,16 +300,15 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         const result = new URLSearchParams({kind, q: search.value, page: String(page)});
         if (source) result.set("source", source);
         if (roll) result.set("random", "1");
+        result.set("category_mode", "branch");
         for (const [name, values] of Object.entries(filters)) for (const value of values) result.append(name, value);
         return result;
     }
     function captureFilterScroll() {
-        return {fields: filterFields.scrollTop, category: filterFields.querySelector('.soda-category-list')?.scrollTop ?? 0,
+        return {fields: filterFields.scrollTop, category: categories.element.querySelector('.soda-category-list').scrollTop,
             selects: Object.fromEntries([...filterFields.querySelectorAll('select')].map(el => [el.dataset.filter, el.scrollTop]))};
     }
     function restoreFilterScroll(scroll) {
-        const list = filterFields.querySelector('.soda-category-list');
-        if (list) list.scrollTop = scroll.category ?? 0;
         for (const el of filterFields.querySelectorAll('select')) el.scrollTop = scroll.selects?.[el.dataset.filter] ?? 0;
         filterFields.scrollTop = scroll.fields ?? 0;
     }
@@ -322,30 +324,11 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             chip.title = value; chip.setAttribute("aria-label", `移除分类：${value}`); activeFilters.append(chip);
         }
         activeFilters.hidden = !activeFilters.children.length;
-        const names = {category: "分类 / 作品", ...(kind === "content" ? filterLabels : {})};
+        categories.update(facets.category, filters.category, categoryTreeSupported);
+        const names = kind === "content" ? filterLabels : {};
         for (const [name, label] of Object.entries(names)) {
             const values = Object.entries(facets[name] ?? {});
             if (!values.length) continue;
-            if (name === "category") {
-                const field = element("div", "soda-category-field");
-                const list = element("div", "soda-category-list"); list.setAttribute("aria-label", label);
-                const needle = categorySearch.value.trim().toLocaleLowerCase();
-                for (const [value, count] of values.sort((a, b) => a[0].localeCompare(b[0]))) {
-                    if (needle && !value.toLocaleLowerCase().includes(needle)) continue;
-                    const row = element("label", "soda-category-option");
-                    const check = element("input"); check.type = "checkbox"; check.value = value;
-                    check.checked = filters.category?.includes(value) ?? false;
-                    check.addEventListener("change", () => {
-                        const picked = new Set(filters.category);
-                        if (check.checked) picked.add(value); else picked.delete(value);
-                        filters.category = [...picked]; page = 1; query();
-                    });
-                    row.append(check, element("span", "", value), element("span", "soda-muted", count)); list.append(row);
-                }
-                field.append(element("span", "soda-muted", "勾选可多选，已选分类显示在下方"), list);
-                if (!list.children.length) list.append(element("p", "soda-muted", "没有匹配的分类，试试其他关键词。"));
-                filterFields.append(field); continue;
-            }
             const field = element("label", "soda-field", label);
             const select = element("select"); select.multiple = true; select.size = 4;
             select.dataset.filter = name;
@@ -358,7 +341,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             select.addEventListener("change", () => {filters[name] = [...select.selectedOptions].map(o => o.value); page = 1; query();});
             field.append(select); filterFields.append(field);
         }
-        filterFields.append(button("清除筛选", () => {filters = {}; source = ""; categorySearch.value = ""; page = 1; query();}));
+        filterFields.append(button("清除筛选", () => {filters = {}; source = ""; categories.clearSearch(); page = 1; query();}));
         if (focused) {
             const replacement = [...filterFields.querySelectorAll('input, select, button')].find(el =>
                 el.tagName === focused.tagName && (el.tagName === 'BUTTON' ? el.textContent === focused.textContent :
@@ -394,6 +377,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             sources.replaceChildren(element("option", "", "全部数据源")); sources.firstChild.value = "";
             for (const s of result.sources) {const o = element("option", "", s.label); o.value = s.id; sources.append(o);}
             sources.value = source;
+            categoryTreeSupported = result.category_tree === true;
             facets = result.facets; renderFilters(facets, pendingFilterScroll ?? captureFilterScroll()); pendingFilterScroll = null;
             grid.replaceChildren();
             for (const entry of result.entries) {
@@ -404,7 +388,9 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
                     catch (error) {if (!closed && detailTicket === detailId) message(error.message);}
                 }, "soda-card");
                 card.dataset.key = entry.key;
-                card.append(mediaFor(entry, result.revision), element("strong", "", entry.title), element("span", "soda-category", entry.category));
+                const category = element("span", "soda-category", entry.category?.split('/').at(-1));
+                category.title = entry.category ?? "";
+                card.append(mediaFor(entry, result.revision), element("strong", "", entry.title), category);
                 grid.append(card);
             }
             grid.setAttribute('aria-busy', 'false');

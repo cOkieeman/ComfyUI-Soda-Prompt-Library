@@ -24,7 +24,7 @@ const request = async url => {
     } else if (u.searchParams.has('random')) {
         data = entry(kind, 0);
     } else {
-        data = {entries: Array.from({length: 60}, (_, i) => entry(kind, i)), total: 120, page: Number(u.searchParams.get('page') || 1), page_size: 60, facets: {}, sources: [{id: 'fixture', label: '通用测试素材', status: 'ready', count: 120}], warnings: [], revision: 'fixture'};
+        data = {entries: Array.from({length: 60}, (_, i) => entry(kind, i)), total: 120, page: Number(u.searchParams.get('page') || 1), page_size: 60, category_tree: true, facets: {category: {'原创角色/旅人/旅行者': 20, '原创角色/旅人/向导': 20, '原创角色/城镇/工匠': 20, '原创角色/城镇/花匠': 20, '原创角色/海边/水手': 20, '原创角色/海边/灯塔守望者': 20}}, sources: [{id: 'fixture', label: '通用测试素材', status: 'ready', count: 120}], warnings: [], revision: 'fixture'};
     }
     return new Response(JSON.stringify(data), {headers: {'Content-Type': 'application/json'}});
 };

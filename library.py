@@ -393,6 +393,8 @@ class Library:
             if kind not in KINDS:
                 raise ValueError("未知素材类型")
             pool = [e for e in self.entries.values() if e.kind == kind]
+            if params.get("source"):
+                pool = [e for e in pool if e.source == params["source"]]
             facets = {"category": dict(Counter(e.category for e in pool))}
             for field_name in FILTERS:
                 facets[field_name] = dict(
@@ -412,6 +414,12 @@ class Library:
                 for name in ("category", *FILTERS):
                     wanted = params.get(name, [])
                     actual = e.category if name == "category" else str(e.metadata.get(name, ""))
+                    if name == "category" and params.get("category_mode") == "branch":
+                        if wanted and not any(
+                            actual == path or actual.startswith(path + "/") for path in wanted
+                        ):
+                            return False
+                        continue
                     if wanted and actual not in wanted:
                         return False
                 return True
@@ -428,6 +436,7 @@ class Library:
                 "page": page,
                 "page_size": limit,
                 "facets": facets,
+                "category_tree": True,
                 "sources": self.sources,
                 "warnings": self.warnings,
                 "revision": self.revision,

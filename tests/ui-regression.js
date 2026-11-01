@@ -20,7 +20,7 @@ function mount(options = {}) {
             return response(entry(k, id));
         }
         if (u.searchParams.has('random')) return response(entry(kind));
-        return response({entries: [entry(kind), entry(kind, 'b')], total: 120, page: Number(u.searchParams.get('page') || 1), page_size: 60, facets: {}, sources: [], warnings: []});
+        return response({entries: [entry(kind), entry(kind, 'b')], total: 120, page: Number(u.searchParams.get('page') || 1), page_size: 60, category_tree: true, facets: {}, sources: [], warnings: []});
     });
     closePanel = openLibrary({request, getText: options.getText || (() => ''), saved: options.saved, browseState: options.browseState,
         onLoad: (text, state) => {loaded = {text, state};}});
@@ -163,7 +163,7 @@ test('分类搜索与勾选互不清除；分类跨页签保留', async () => {
         if (data.entries) data.facets = {category:{'作品/Alpha':1,'作品/Beta':1}};
         return response(data);
     }}); await tick();
-    document.querySelector('.soda-filters').open = true;
+    button('多选').click();
     const search = document.querySelector('.soda-category-search');
     search.value = 'Alpha'; search.dispatchEvent(new Event('input'));
     assert(document.querySelectorAll('.soda-category-option').length === 1, '分类搜索未缩小列表');
@@ -172,7 +172,7 @@ test('分类搜索与勾选互不清除；分类跨页签保留', async () => {
     document.querySelector('.soda-category-option input').click(); await tick();
     assert(document.querySelectorAll('.soda-active-filters button').length === 2, '改搜分类丢失之前勾选');
     button('服饰').click(); await tick(); button('角色').click(); await tick();
-    assert(search.value === 'Beta' && document.querySelector('.soda-filters').open, '分类搜索和展开状态未恢复');
+    assert(search.value === 'Beta' && button('完成多选'), '分类搜索和展开状态未恢复');
     assert(document.querySelectorAll('.soda-active-filters button').length === 2, '切换页签丢失已选分类');
     document.querySelector('.soda-active-filters button').click(); await tick();
     assert(document.querySelectorAll('.soda-active-filters button').length === 1, '分类快捷移除失败');
@@ -224,7 +224,7 @@ async function mountScrollFixture(options = {}) {
     return state;
 }
 test('勾选靠后的分类后，分类列表不回顶且键盘焦点保留', async () => {
-    await mountScrollFixture(); document.querySelector('.soda-filters').open = true;
+    await mountScrollFixture(); button('多选').click();
     const list = document.querySelector('.soda-category-list'); list.scrollTop = 900;
     const check = list.querySelectorAll('input')[32]; check.focus({preventScroll:true});
     const before = list.scrollTop; check.click(); await tick();
@@ -251,7 +251,7 @@ test('关闭展开预览后保持父面板滚动位置', async () => {
     assert(side.scrollTop === before, `关闭预览后从 ${before} 跳到 ${side.scrollTop}`);
 });
 test('分类滚动位置在切换页签后恢复', async () => {
-    await mountScrollFixture(); document.querySelector('.soda-filters').open = true;
+    await mountScrollFixture(); button('多选').click();
     document.querySelector('.soda-category-list').scrollTop = 900;
     const before = document.querySelector('.soda-category-list').scrollTop;
     button('服饰').click(); await tick(); button('角色').click(); await tick();
@@ -279,6 +279,79 @@ test('慢速翻页等待期间也不让弹窗回顶', async () => {
     assert(panel.scrollTop === before, `等待响应时弹窗从 ${before} 跳到 ${panel.scrollTop}`);
     finish(); await tick();
     assert(panel.scrollTop === before, '响应完成后弹窗位置变化');
+});
+
+async function mountTree(options = {}) {
+    const base = mount(); closePanel(); const urls = [];
+    const request = async url => {
+        urls.push(url);
+        const data = await (await base.request(url)).json();
+        if (data.entries) {
+            data.category_tree = options.supported !== false;
+            data.facets = {category:{'角色/系列甲/作品一':4,'角色/系列甲/作品二':3,'角色/系列乙/作品一':2}};
+        }
+        return response(data);
+    };
+    const state = mount({request, browseState: options.browseState}); await tick();
+    return {...state, urls, request};
+}
+const categoryButton = path => [...document.querySelectorAll('.soda-category-name')].find(el => el.dataset.path === path);
+const toggleCategory = path => document.querySelector(`[aria-label="展开或收起：${path}"]`).click();
+test('分类默认单选；展开箭头不筛选，父分类查询包含子分类模式', async () => {
+    const {urls} = await mountTree(); const before = urls.length;
+    assert(!document.querySelector('.soda-category-list input'), '默认仍是多选复选框');
+    toggleCategory('角色/系列甲'); await tick();
+    assert(urls.length === before && categoryButton('角色/系列甲/作品一'), '展开目录触发请求或未显示子项');
+    categoryButton('角色/系列甲').click(); await tick();
+    const query = new URL(urls.at(-1), location.origin).searchParams;
+    assert(query.get('category') === '角色/系列甲' && query.get('category_mode') === 'branch', '父分类没有使用后端子树筛选');
+    categoryButton('角色/系列乙').click(); await tick();
+    assert(document.querySelectorAll('.soda-active-filters button').length === 1, '单选时累积了分类');
+});
+test('同名分类搜索显示所属上级，搜索不修改已选分类', async () => {
+    await mountTree(); categoryButton('角色/系列甲').click(); await tick();
+    const search = document.querySelector('.soda-category-search'); search.value = '作品一'; search.dispatchEvent(new Event('input'));
+    assert(document.querySelectorAll('.soda-category-name').length === 2, '搜索没有跨层级匹配同名分类');
+    assert(document.querySelector('.soda-category-list').textContent.includes('角色/系列乙'), '搜索结果缺少所属上级');
+    assert(document.querySelectorAll('.soda-active-filters button').length === 1, '搜索清除了选择');
+});
+test('多选去掉父子重复范围，切回单选及全部素材可继续浏览', async () => {
+    await mountTree(); button('多选').click(); toggleCategory('角色/系列甲');
+    categoryButton('角色/系列甲/作品一').click(); await tick();
+    categoryButton('角色/系列甲').click(); await tick();
+    assert(document.querySelectorAll('.soda-active-filters button').length === 1, '父子范围重复累积');
+    categoryButton('角色/系列乙').click(); await tick();
+    assert(document.querySelectorAll('.soda-active-filters button').length === 2, '多选未保留其他分类');
+    button('完成多选').click(); await tick();
+    assert(document.querySelectorAll('.soda-active-filters button').length === 1, '退出多选未收敛至单分类');
+    button('全部素材').click(); await tick();
+    assert(document.querySelector('.soda-active-filters').hidden, '全部素材未清除分类');
+});
+test('分类展开状态跨页签和重新打开保留', async () => {
+    const browseState = {}; const {request, urls} = await mountTree({browseState});
+    toggleCategory('角色/系列甲');
+    categoryButton('角色/系列甲').click(); await tick();
+    button('服饰').click(); await tick(); button('角色').click(); await tick();
+    assert(categoryButton('角色/系列甲/作品二'), '切换页签丢失展开状态');
+    closePanel(); mount({request,browseState}); await tick();
+    assert(categoryButton('角色/系列甲/作品二'), '重新打开丢失展开状态');
+    const query = new URL(urls.at(-1),location.origin).searchParams;
+    assert(query.get('category') === '角色/系列甲' && query.get('category_mode') === 'branch', '重新打开父分类丢失子树查询模式');
+});
+test('旧后端不支持子树查询时提示重启，不能悄悄返回错误范围', async () => {
+    const {urls} = await mountTree({supported:false}); const before = urls.length;
+    categoryButton('角色/系列甲').click(); await tick();
+    assert(urls.length === before && document.querySelector('.soda-feedback').textContent.includes('重启'), '旧后端静默执行了不支持的子树请求');
+    toggleCategory('角色/系列甲'); categoryButton('角色/系列甲/作品一').click(); await tick();
+    assert(new URL(urls.at(-1),location.origin).searchParams.get('category') === '角色/系列甲/作品一', '旧后端叶分类无法继续浏览');
+});
+test('分类导航与素材各自滚动，窄窗口无横向溢出', async () => {
+    await mountScrollFixture();
+    const nav = document.querySelector('.soda-category-list'), grid = document.querySelector('.soda-grid');
+    nav.scrollTop = 400; const before = grid.scrollTop;
+    assert(nav.scrollTop > 0 && grid.scrollTop === before, '分类滚动影响素材列表');
+    const panel = document.querySelector('.soda-library');
+    assert(panel.scrollWidth <= panel.clientWidth + 1, '弹窗出现横向溢出');
 });
 
 document.querySelector('#run').onclick = async () => {
