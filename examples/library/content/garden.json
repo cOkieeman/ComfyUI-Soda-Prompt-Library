@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "family": "daily/garden",
+  "label": "日常 · 庭院",
+  "entries": [
+    {"id": "garden_flowers", "title": "庭院浇花", "subject": "one adult person, solo", "tags": "watering flowers, holding a watering can, garden, medium shot, morning light", "nl": null, "scene": "garden", "camera": "eye-level", "focal": 50, "preview": null, "ver": 1},
+    {"id": "garden_reading", "title": "树下读书", "subject": "one adult person, solo", "tags": "reading a book, sitting on a wooden bench, garden, soft afternoon light", "nl": null, "scene": "garden", "camera": "side", "focal": 35, "preview": null, "ver": 1}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "family": "original",
+  "label": "原创角色示例",
+  "entries": [
+    {"id": "florist", "title": "成年花艺师", "text": "adult woman, short brown hair, brown eyes", "preview": null, "ver": 1},
+    {"id": "traveler", "title": "成年旅行者", "text": "adult man, short black hair, glasses", "preview": null, "ver": 1}
+  ]
+}

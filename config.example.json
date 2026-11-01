@@ -1,0 +1,13 @@
+{
+  "aaalice_categories": {"角色": "character", "服饰": "outfit"},
+  "neons_sources": [],
+  "json_sources": [
+    {
+      "id": "local",
+      "label": "本地内容库",
+      "kind": "content",
+      "directory": "D:/your-library/content",
+      "preview_directory": "D:/your-library/previews"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "family": "daily",
+  "label": "日常穿搭示例",
+  "entries": [
+    {"id": "apron", "title": "衬衫与围裙", "text": "cream shirt, navy apron, brown shoes", "preview": null, "ver": 1},
+    {"id": "jacket", "title": "旅行夹克", "text": "green jacket, beige trousers, hiking boots", "preview": null, "ver": 1}
+  ]
+}
