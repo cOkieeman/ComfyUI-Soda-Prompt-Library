@@ -33,6 +33,15 @@
 .soda-filters summary, .soda-diagnostics summary { cursor: pointer; color: var(--sl-muted); }
 .soda-filter-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; max-height: 180px; overflow: auto; }
 .soda-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.soda-category-search { width: 100%; margin-top: 8px; }
+.soda-category-field { grid-column: 1 / -1; min-width: 0; }
+.soda-category-list { max-height: 125px; overflow-y: auto; margin-top: 5px; }
+.soda-category-option { display: flex; align-items: start; gap: 8px; padding: 5px 3px; cursor: pointer; font-size: 12px; }
+.soda-category-option:hover { background: var(--sl-panel); }
+.soda-category-option input { flex: none; margin: 3px 0 0; accent-color: var(--sl-accent); }
+.soda-category-option span:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.soda-active-filters { display: flex; flex-wrap: wrap; gap: 5px; max-height: 64px; overflow-y: auto; flex: none; }
+.soda-active-filters button { font-size: 12px; padding: 3px 7px; max-width: 100%; overflow-wrap: anywhere; }
 .soda-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); grid-auto-rows: max-content; align-items: start; align-content: start; gap: 12px; overflow-y: auto; flex: 1; min-height: 0; padding: 3px; }
 .soda-library .soda-card { padding: 0 0 9px; overflow: hidden; text-align: left; min-width: 0; }
 .soda-card[aria-pressed="true"] { outline: 2px solid var(--sl-accent); outline-offset: -2px; }
@@ -46,9 +55,16 @@
 .soda-side-scroll { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 6px; }
 .soda-side-scroll > * { flex-shrink: 0; }
 .soda-side-footer { flex: none; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--sl-line); }
-.soda-selection-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 5px 0; }
+.soda-selection-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 6px 0; }
 .soda-selection-row span { overflow-wrap: anywhere; }
 .soda-selection-row button { font-size: 12px; padding: 3px 6px; }
+.soda-selection-caption { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
+.soda-selection-row .soda-selection-name { border: 0; padding: 0; background: transparent; text-align: left; overflow-wrap: anywhere; line-height: 1.4; }
+.soda-selection-name:hover { color: var(--sl-accent); text-decoration: underline; }
+.soda-selection-row .soda-selection-thumb { padding: 0; width: 54px; overflow: hidden; }
+.soda-selection-thumb .soda-placeholder { font-size: 10px; }
+.soda-selection-empty { grid-template-columns: 1fr; padding: 4px 0; }
+.soda-selection-empty .soda-selection-caption { flex-direction: row; gap: 12px; }
 .soda-library textarea { width: 100%; padding: 10px; resize: vertical; font-size: 12px; line-height: 1.6; }
 .soda-raw { min-height: 100px; }
 .soda-library .soda-preview { margin: 0; min-height: 140px; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.7 system-ui, sans-serif; background: var(--sl-panel); border: 1px solid var(--sl-line); border-radius: 7px; user-select: text; }

@@ -17,19 +17,23 @@ function button(text, action, className = "") {
     return el;
 }
 
-export function openLibrary({request, getText, saved, onLoad, onClose = () => {}}) {
+export function openLibrary({request, getText, saved, browseState = {}, onLoad, onClose = () => {}}) {
     const oldFocus = document.activeElement;
     const dialog = element("dialog", "soda-library");
     dialog.setAttribute("aria-label", "Soda 提示词库");
     const selection = restore(saved);
-    let kind = "character", page = 1, source = "", detail = null;
-    let filters = {}, total = 0, queryId = 0, detailId = 0, controller;
+    let kind = kinds.includes(browseState.kind) ? browseState.kind : "character";
+    const initialView = viewFor(kind);
+    let page = initialView.page, source = initialView.source, detail = null;
+    let filters = initialView.filters, total = 0, queryId = 0, detailId = 0, controller;
+    let loading = true, desiredScroll = initialView.scrollTop, facets = {};
     let closed = false, searchTimer, closeImage, closeText;
     const heading = element("header", "soda-head");
     const headingText = element("div");
     headingText.append(element("h2", "", "Soda 提示词库"), element("p", "soda-muted", "选好素材，预览后载入。原文保留，正文由你修改。"));
     const close = () => {
         if (closed) return;
+        saveView();
         closed = true;
         clearTimeout(searchTimer);
         controller?.abort();
@@ -53,12 +57,18 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     const tabButtons = {};
     for (const item of kinds) {
         tabButtons[item] = button(labels[item], () => {
-            kind = item; page = 1; filters = {}; source = ""; search.value = "";
+            saveView();
+            kind = item;
+            const view = viewFor(kind);
+            page = view.page; filters = view.filters; source = view.source; search.value = view.q;
+            categorySearch.value = view.categoryQuery; filterBox.open = view.filtersOpen;
+            facets = {}; renderFilters(facets);
             detailId++; detail = null; raw.value = ""; copy.disabled = true; enlarge.disabled = true;
             detailTitle.textContent = "条目原文";
+            if (selection[kind]) inspect(selection[kind]);
             for (const k of kinds) tabButtons[k].setAttribute("aria-pressed", String(k === kind));
             random.hidden = kind !== "content";
-            query();
+            query(view.scrollTop);
         });
         tabButtons[item].setAttribute("aria-pressed", String(item === kind));
         tabs.append(tabButtons[item]);
@@ -67,9 +77,11 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     const search = element("input", "soda-search");
     search.type = "search"; search.placeholder = "搜索名称、作品、ID 或提示词";
     search.setAttribute("aria-label", "搜索素材");
+    search.value = initialView.q;
     search.addEventListener("input", () => {
+        page = 1; desiredScroll = 0;
         clearTimeout(searchTimer); invalidateBrowse();
-        searchTimer = setTimeout(() => {page = 1; query();}, 200);
+        searchTimer = setTimeout(() => query(), 200);
     });
     const sources = element("select"); sources.setAttribute("aria-label", "数据源");
     sources.addEventListener("change", () => {source = sources.value; page = 1; query();});
@@ -92,15 +104,22 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
         } catch (error) {if (!closed && ticket === detailId) message(error.message);}
         finally {if (!closed && ticket === detailId) random.disabled = total === 0;}
     });
-    random.hidden = true;
+    random.hidden = kind !== "content";
     toolbar.append(search, sources, refresh, random);
 
     const body = element("div", "soda-body");
     const browse = element("section", "soda-browse");
     const filterBox = element("details", "soda-filters");
     filterBox.append(element("summary", "", "分类与筛选（可多选）"));
+    filterBox.open = initialView.filtersOpen;
+    const categorySearch = element("input", "soda-category-search");
+    categorySearch.type = "search"; categorySearch.placeholder = "查找作品或分类，例如：明日方舟";
+    categorySearch.setAttribute("aria-label", "查找作品或分类");
+    categorySearch.value = initialView.categoryQuery;
+    categorySearch.addEventListener("input", () => renderFilters(facets));
     const filterFields = element("div", "soda-filter-fields");
-    filterBox.append(filterFields);
+    filterBox.append(categorySearch, filterFields);
+    const activeFilters = element("div", "soda-active-filters"); activeFilters.hidden = true;
     const status = element("p", "soda-status"); status.setAttribute("aria-live", "polite");
     const grid = element("div", "soda-grid"); grid.setAttribute("aria-label", "素材卡片");
     const pager = element("div", "soda-pager");
@@ -108,13 +127,13 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     const next = button("下一页", () => {page++; query();});
     const pageText = element("span");
     pager.append(previous, pageText, next);
-    browse.append(filterBox, status, grid, pager);
+    browse.append(filterBox, activeFilters, status, grid, pager);
 
     const side = element("aside", "soda-side");
     const sideScroll = element("div", "soda-side-scroll");
     sideScroll.append(element("h3", "", "当前组合"));
     const selected = element("div", "soda-selected");
-    const sourceStatus = element("p", "soda-muted");
+    const sourceStatus = element("p", "soda-muted"); sourceStatus.hidden = true;
     const rawDetails = element("details", "soda-raw-details");
     const detailTitle = element("summary", "", "条目原文");
     const raw = element("textarea", "soda-raw"); raw.readOnly = true;
@@ -124,21 +143,22 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
         try {await navigator.clipboard.writeText(detail.text); message("已复制，正文没有变化。");}
         catch {rawDetails.open = true; raw.focus(); raw.select(); message("无法直接复制，请在原文框中按 Ctrl+C。");}
     }); copy.disabled = true;
-    const enlarge = button("查看大图", () => {
-        if (!detail?.has_preview) return;
+    const enlarge = button("查看大图", () => showImage(detail, enlarge)); enlarge.disabled = true;
+    function showImage(entry, trigger) {
+        if (!entry?.has_preview) return;
         const imageDialog = element("dialog", "soda-image-dialog");
-        imageDialog.setAttribute("aria-label", detail.title + " 图像预览");
-        const imageTitle = element("h3", "", detail.title);
-        const img = element("img"); img.alt = detail.title;
+        imageDialog.setAttribute("aria-label", entry.title + " 图像预览");
+        const imageTitle = element("h3", "", entry.title);
+        const img = element("img"); img.alt = entry.title;
         const imageMessage = element("p", "", "正在加载原图…");
         img.addEventListener("load", () => {imageMessage.textContent = "";});
         img.addEventListener("error", () => {imageMessage.textContent = "图片不存在或无法读取，提示词仍可复制。"; img.hidden = true;});
-        img.src = prefix + "/preview?" + new URLSearchParams({key: detail.key, v: detail.version});
-        closeImage = () => {imageDialog.close(); imageDialog.remove(); closeImage = null; enlarge.focus();};
+        img.src = prefix + "/preview?" + new URLSearchParams({key: entry.key, v: entry.version ?? ""});
+        closeImage = () => {imageDialog.close(); imageDialog.remove(); closeImage = null; trigger?.focus();};
         imageDialog.addEventListener("cancel", event => {event.preventDefault(); closeImage?.();});
         imageDialog.append(imageTitle, button("关闭大图", () => closeImage?.()), img, imageMessage);
         document.body.append(imageDialog); imageDialog.showModal();
-    }); enlarge.disabled = true;
+    }
     const detailActions = element("div", "soda-detail-actions"); detailActions.append(copy, enlarge);
     rawDetails.append(detailTitle, raw);
     const preview = element("pre", "soda-preview");
@@ -182,7 +202,18 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     dialog.append(heading, tabs, toolbar, body, diagnostics);
     document.body.append(dialog);
     dialog.showModal();
-    updateSelection(); query(); checkSaved(); search.focus();
+    updateSelection();
+    if (selection[kind]) inspect(selection[kind]);
+    query(initialView.scrollTop); checkSaved(); search.focus();
+
+    function viewFor(item) {
+        return {page: 1, source: "", filters: {}, q: "", categoryQuery: "", scrollTop: 0, filtersOpen: false, ...browseState[item]};
+    }
+    function saveView() {
+        browseState.kind = kind;
+        browseState[kind] = {page, source, filters, q: search.value, categoryQuery: categorySearch.value,
+            scrollTop: loading ? desiredScroll : grid.scrollTop, filtersOpen: filterBox.open};
+    }
 
     async function json(url, options) {
         const response = await request(url, options);
@@ -195,8 +226,23 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
         selected.replaceChildren();
         for (const item of kinds) {
             const row = element("div", "soda-selection-row");
-            row.append(element("span", "soda-muted", labels[item]), element("span", "", selection[item]?.title ?? "未选择"));
-            if (selection[item]) row.append(button("移除", () => {
+            const entry = selection[item];
+            const caption = element("div", "soda-selection-caption");
+            caption.append(element("span", "soda-muted", labels[item]));
+            if (entry) {
+                const thumb = button("", () => entry.has_preview ? showImage(entry, thumb) : inspectSelected(entry), "soda-selection-thumb");
+                thumb.setAttribute("aria-label", `${entry.has_preview ? "查看大图" : "查看原文"}：${entry.title}`);
+                thumb.append(mediaFor(entry, entry.version));
+                row.append(thumb);
+                const name = button(entry.title, () => inspectSelected(entry), "soda-selection-name");
+                name.title = "查看已选原文";
+                caption.append(name);
+            } else {
+                row.classList.add("soda-selection-empty");
+                caption.append(element("span", "soda-muted", "未选择"));
+            }
+            row.append(caption);
+            if (entry) row.append(button("移除", () => {
                 if (item === kind) {detailId++; random.disabled = total === 0;}
                 delete selection[item]; updateSelection(); markSelected();
             }));
@@ -212,9 +258,27 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     }
     function choose(entry) {
         if (entry.kind !== kind) return;
-        detail = entry; selection[kind] = structuredClone(entry);
-        detailTitle.textContent = entry.title; raw.value = entry.text; copy.disabled = false; enlarge.disabled = !entry.has_preview;
+        selection[kind] = structuredClone(entry); inspect(entry);
         updateSelection(); markSelected(); message("已加入待选组合，正文尚未改变。");
+    }
+    function inspect(entry) {
+        detail = entry;
+        detailTitle.textContent = entry.title; raw.value = entry.text; copy.disabled = false; enlarge.disabled = !entry.has_preview;
+    }
+    function inspectSelected(entry) {
+        inspect(entry); rawDetails.open = true;
+        raw.focus(); message("正在查看已选素材的原文快照，组合和正文没有变化。");
+    }
+    function mediaFor(entry, version = "") {
+        const media = element("div", "soda-media");
+        const placeholder = element("span", "soda-placeholder", "暂无预览"); media.append(placeholder);
+        if (entry.has_preview) {
+            const img = element("img"); img.loading = "lazy"; img.alt = entry.title;
+            img.src = prefix + "/preview?" + new URLSearchParams({key: entry.key, v: version ?? ""});
+            img.addEventListener("load", () => {placeholder.hidden = true;}, {once: true});
+            img.addEventListener("error", () => img.remove(), {once: true}); media.append(img);
+        }
+        return media;
     }
     function params(roll = false) {
         const result = new URLSearchParams({kind, q: search.value, page: String(page)});
@@ -225,10 +289,38 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     }
     function renderFilters(facets) {
         filterFields.replaceChildren();
+        activeFilters.replaceChildren();
+        for (const value of filters.category ?? []) {
+            const chip = button(`${value.split("/").at(-1)} ×`, () => {
+                filters.category = filters.category.filter(item => item !== value); page = 1; query();
+            });
+            chip.title = value; chip.setAttribute("aria-label", `移除分类：${value}`); activeFilters.append(chip);
+        }
+        activeFilters.hidden = !activeFilters.children.length;
         const names = {category: "分类 / 作品", ...(kind === "content" ? filterLabels : {})};
         for (const [name, label] of Object.entries(names)) {
             const values = Object.entries(facets[name] ?? {});
             if (!values.length) continue;
+            if (name === "category") {
+                const field = element("div", "soda-category-field");
+                const list = element("div", "soda-category-list"); list.setAttribute("aria-label", label);
+                const needle = categorySearch.value.trim().toLocaleLowerCase();
+                for (const [value, count] of values.sort((a, b) => a[0].localeCompare(b[0]))) {
+                    if (needle && !value.toLocaleLowerCase().includes(needle)) continue;
+                    const row = element("label", "soda-category-option");
+                    const check = element("input"); check.type = "checkbox"; check.value = value;
+                    check.checked = filters.category?.includes(value) ?? false;
+                    check.addEventListener("change", () => {
+                        const picked = new Set(filters.category);
+                        if (check.checked) picked.add(value); else picked.delete(value);
+                        filters.category = [...picked]; page = 1; query();
+                    });
+                    row.append(check, element("span", "", value), element("span", "soda-muted", count)); list.append(row);
+                }
+                field.append(element("span", "soda-muted", "勾选可多选，已选分类显示在下方"), list);
+                if (!list.children.length) list.append(element("p", "soda-muted", "没有匹配的分类，试试其他关键词。"));
+                filterFields.append(field); continue;
+            }
             const field = element("label", "soda-field", label);
             const select = element("select"); select.multiple = true; select.size = 4;
             select.setAttribute("aria-label", label);
@@ -240,17 +332,19 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
             select.addEventListener("change", () => {filters[name] = [...select.selectedOptions].map(o => o.value); page = 1; query();});
             field.append(select); filterFields.append(field);
         }
-        filterFields.append(button("清除筛选", () => {filters = {}; source = ""; page = 1; query();}));
+        filterFields.append(button("清除筛选", () => {filters = {}; source = ""; categorySearch.value = ""; page = 1; query();}));
     }
     function invalidateBrowse() {
         controller?.abort(); queryId++; detailId++; total = 0;
+        loading = true;
         grid.replaceChildren();
         previous.disabled = true; next.disabled = true; random.disabled = true;
         pageText.textContent = "—";
         status.textContent = "正在读取素材…";
     }
-    async function query() {
+    async function query(scrollTop = 0) {
         if (closed) return;
+        desiredScroll = scrollTop;
         clearTimeout(searchTimer);
         invalidateBrowse(); controller = new AbortController();
         const ticket = queryId;
@@ -264,7 +358,7 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
             sources.replaceChildren(element("option", "", "全部数据源")); sources.firstChild.value = "";
             for (const s of result.sources) {const o = element("option", "", s.label); o.value = s.id; sources.append(o);}
             sources.value = source;
-            renderFilters(result.facets);
+            facets = result.facets; renderFilters(facets);
             grid.replaceChildren();
             for (const entry of result.entries) {
                 const card = button("", async () => {
@@ -274,18 +368,10 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
                     catch (error) {if (!closed && detailTicket === detailId) message(error.message);}
                 }, "soda-card");
                 card.dataset.key = entry.key;
-                const media = element("div", "soda-media");
-                const placeholder = element("span", "soda-placeholder", "暂无预览"); media.append(placeholder);
-                if (entry.has_preview) {
-                    const img = element("img"); img.loading = "lazy"; img.alt = entry.title;
-                    img.src = prefix + "/preview?" + new URLSearchParams({key: entry.key, v: result.revision});
-                    img.addEventListener("load", () => {placeholder.hidden = true;}, {once: true});
-                    img.addEventListener("error", () => img.remove(), {once: true}); media.append(img);
-                }
-                card.append(media, element("strong", "", entry.title), element("span", "soda-category", entry.category));
+                card.append(mediaFor(entry, result.revision), element("strong", "", entry.title), element("span", "soda-category", entry.category));
                 grid.append(card);
             }
-            markSelected(); grid.scrollTop = 0;
+            markSelected(); grid.scrollTop = scrollTop; loading = false;
             warnings.replaceChildren();
             for (const s of result.sources) warnings.append(element("p", "", `${s.label}：${s.status === "ready" ? `${s.count} 条` : "不可用"}`));
             for (const warning of result.warnings) warnings.append(element("p", "soda-warning", warning));
@@ -299,7 +385,10 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
             try {await json(prefix + "/entry?" + new URLSearchParams({key: entry.key}));}
             catch {missing.push(entry.title);}
         }
-        if (!closed) sourceStatus.textContent = missing.length ? `来源暂不可用：${missing.join("、")}。已保存的正文和组合快照保留。` : "载入过的素材保留快照；重新点选卡片才采用库中当前版本。";
+        if (!closed) {
+            sourceStatus.hidden = !missing.length;
+            sourceStatus.textContent = missing.length ? `来源暂不可用：${missing.join("、")}。已保存的正文和组合快照保留。` : "";
+        }
     }
     return close;
 }

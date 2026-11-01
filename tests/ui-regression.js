@@ -22,7 +22,7 @@ function mount(options = {}) {
         if (u.searchParams.has('random')) return response(entry(kind));
         return response({entries: [entry(kind), entry(kind, 'b')], total: 120, page: Number(u.searchParams.get('page') || 1), page_size: 60, facets: {}, sources: [], warnings: []});
     });
-    closePanel = openLibrary({request, getText: options.getText || (() => ''), saved: options.saved,
+    closePanel = openLibrary({request, getText: options.getText || (() => ''), saved: options.saved, browseState: options.browseState,
         onLoad: (text, state) => {loaded = {text, state};}});
     return {request, loaded: () => loaded};
 }
@@ -120,7 +120,7 @@ test('读取失败后可恢复，已有正文与快照保持不变', async () =>
     await tick(); fail = true; button('下一页').click(); await tick();
     assert(preview() === entry('character').text && state.loaded() === null, '读取错误影响了正文或快照');
     fail = false; button('角色').click(); await tick();
-    assert(cards().length === 2 && !button('下一页').disabled, '无法重新读取素材');
+    assert(cards().length === 2 && !button('上一页').disabled, '无法恢复到出错前请求的第二页');
 });
 test('随机请求期间改选卡片后仍可再次随机', async () => {
     const base = mount(); closePanel(); let resolveRandom;
@@ -136,6 +136,75 @@ test('刷新请求失败后显示错误而不是永久加载', async () => {
     await tick(); button('刷新库').click(); await tick();
     assert(document.querySelector('.soda-status').textContent.includes('读取失败'), '刷新失败后仍显示正在读取');
     assert(!button('刷新库').disabled, '刷新按钮永久禁用');
+});
+
+test('页签分别记住搜索、页码与重新打开的位置', async () => {
+    const browseState = {};
+    mount({browseState}); await tick();
+    const search = document.querySelector('.soda-search');
+    search.value = 'traveler'; search.dispatchEvent(new Event('input'));
+    button('服饰').click(); await tick();
+    assert(search.value === '', '角色搜索污染服饰');
+    button('下一页').click(); await tick();
+    button('角色').click(); await tick();
+    assert(search.value === 'traveler', '角色搜索未恢复');
+    assert(document.querySelector('.soda-pager').textContent.includes('1 / 2'), '未完成的搜索没有重置页码');
+    button('服饰').click(); await tick();
+    assert(document.querySelector('.soda-pager').textContent.includes('2 / 2'), '服饰页码未恢复');
+    closePanel(); mount({browseState}); await tick();
+    assert(document.querySelector('.soda-tabs button[aria-pressed=true]').textContent === '服饰', '重新打开没有恢复页签');
+    assert(document.querySelector('.soda-pager').textContent.includes('2 / 2'), '重新打开没有恢复页码');
+});
+test('分类搜索与勾选互不清除；分类跨页签保留', async () => {
+    const base = mount(); closePanel();
+    mount({request: async url => {
+        const result = await base.request(url); const data = await result.json();
+        if (data.entries) data.facets = {category:{'作品/Alpha':1,'作品/Beta':1}};
+        return response(data);
+    }}); await tick();
+    document.querySelector('.soda-filters').open = true;
+    const search = document.querySelector('.soda-category-search');
+    search.value = 'Alpha'; search.dispatchEvent(new Event('input'));
+    assert(document.querySelectorAll('.soda-category-option').length === 1, '分类搜索未缩小列表');
+    document.querySelector('.soda-category-option input').click(); await tick();
+    search.value = 'Beta'; search.dispatchEvent(new Event('input'));
+    document.querySelector('.soda-category-option input').click(); await tick();
+    assert(document.querySelectorAll('.soda-active-filters button').length === 2, '改搜分类丢失之前勾选');
+    button('服饰').click(); await tick(); button('角色').click(); await tick();
+    assert(search.value === 'Beta' && document.querySelector('.soda-filters').open, '分类搜索和展开状态未恢复');
+    assert(document.querySelectorAll('.soda-active-filters button').length === 2, '切换页签丢失已选分类');
+    document.querySelector('.soda-active-filters button').click(); await tick();
+    assert(document.querySelectorAll('.soda-active-filters button').length === 1, '分类快捷移除失败');
+});
+test('查看已选缩略图与原文使用快照，不修改当前组合', async () => {
+    const character = {...entry('character'),has_preview:true};
+    mount({saved:snapshot({character})}); await tick();
+    const before = preview();
+    const thumb = document.querySelector('.soda-selection-thumb');
+    assert(thumb.querySelector('img').getAttribute('src').includes('character%3Aa'), '缩略图引用错误条目');
+    button('服饰').click(); await tick();
+    document.querySelector('.soda-selection-name').click();
+    assert(document.querySelector('.soda-raw').value === character.text, '没有显示保存的原文');
+    assert(preview() === before, '查看原文改变了组合');
+    thumb.click();
+    assert(document.querySelector('.soda-image-dialog').getAttribute('aria-label').includes(character.title), '已选缩略图未打开对应大图');
+    document.querySelector('.soda-image-dialog').dispatchEvent(new Event('cancel',{cancelable:true}));
+    assert(preview() === before, '查看图片改变了组合');
+});
+test('切换页签和重新打开恢复列表滚动位置', async () => {
+    const base = mount(); closePanel(); const browseState = {};
+    const request = async url => {
+        const result = await base.request(url); const data = await result.json();
+        if (data.entries) data.entries = Array.from({length:60},(_,i)=>entry(new URL(url,location.origin).searchParams.get('kind'),String(i)));
+        return response(data);
+    };
+    mount({request,browseState}); await tick();
+    const grid = document.querySelector('.soda-grid'); grid.scrollTop = 300;
+    assert(grid.scrollTop === 300, '测试列表没有滚动空间');
+    button('服饰').click(); await tick(); button('角色').click(); await tick();
+    assert(grid.scrollTop === 300, '切换页签丢失滚动位置');
+    closePanel(); mount({request,browseState}); await tick();
+    assert(document.querySelector('.soda-grid').scrollTop === 300, '重新打开丢失滚动位置');
 });
 
 document.querySelector('#run').onclick = async () => {

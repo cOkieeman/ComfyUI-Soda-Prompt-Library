@@ -1,10 +1,10 @@
 import {app} from "../../scripts/app.js";
 import {api} from "../../scripts/api.js";
-import {openLibrary} from "./panel.js?v=0.1.2";
+import {openLibrary} from "./panel.js?v=0.1.3";
 
 const stylesheet = document.createElement("link");
 stylesheet.rel = "stylesheet";
-stylesheet.href = new URL("./style.css?v=0.1.2", import.meta.url).href;
+stylesheet.href = new URL("./style.css?v=0.1.3", import.meta.url).href;
 document.head.append(stylesheet);
 
 app.registerExtension({
@@ -19,12 +19,14 @@ app.registerExtension({
             const editor = () => text.element ?? text.inputEl;
             if (editor()) {editor().placeholder = "在这里手写，或打开库选择后修改"; editor().setAttribute("aria-label", "正文");}
             let closePanel;
+            const browseState = {};
             const open = this.addWidget("button", "打开库…", null, () => {
                 if (closePanel) return;
                 closePanel = openLibrary({
                     request: (url, options) => api.fetchApi(url, options),
                     getText: () => text.value ?? "",
                     saved: this.properties.soda_library,
+                    browseState,
                     onLoad: (value, state) => {
                         this.graph?.beforeChange?.();
                         text.value = value;
