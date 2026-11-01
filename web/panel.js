@@ -67,23 +67,30 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     const search = element("input", "soda-search");
     search.type = "search"; search.placeholder = "搜索名称、作品、ID 或提示词";
     search.setAttribute("aria-label", "搜索素材");
-    search.addEventListener("input", () => {clearTimeout(searchTimer); searchTimer = setTimeout(() => {page = 1; query();}, 200);});
+    search.addEventListener("input", () => {
+        clearTimeout(searchTimer); invalidateBrowse();
+        searchTimer = setTimeout(() => {page = 1; query();}, 200);
+    });
     const sources = element("select"); sources.setAttribute("aria-label", "数据源");
     sources.addEventListener("change", () => {source = sources.value; page = 1; query();});
     const refresh = button("刷新库", async () => {
         refresh.disabled = true;
+        invalidateBrowse();
+        const ticket = queryId;
         try {await json(prefix + "/reload", {method: "POST"}); await query(); await checkSaved();}
-        catch (error) {message(error.message);}
+        catch (error) {
+            if (!closed && ticket === queryId) {status.textContent = error.message; message(error.message);}
+        }
         finally {refresh.disabled = false;}
     });
     const random = button("随机一条", async () => {
         random.disabled = true;
+        const ticket = ++detailId;
         try {
-            const ticket = ++detailId;
             const entry = await json(prefix + "/index?" + params(true));
             if (!closed && ticket === detailId && entry) choose(entry);
-        } catch (error) {message(error.message);}
-        finally {random.disabled = total === 0;}
+        } catch (error) {if (!closed && ticket === detailId) message(error.message);}
+        finally {if (!closed && ticket === detailId) random.disabled = total === 0;}
     });
     random.hidden = true;
     toolbar.append(search, sources, refresh, random);
@@ -115,7 +122,7 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
     const copy = button("复制提示词", async () => {
         if (!detail) return;
         try {await navigator.clipboard.writeText(detail.text); message("已复制，正文没有变化。");}
-        catch {raw.focus(); raw.select(); message("无法直接复制，请在原文框中按 Ctrl+C。");}
+        catch {rawDetails.open = true; raw.focus(); raw.select(); message("无法直接复制，请在原文框中按 Ctrl+C。");}
     }); copy.disabled = true;
     const enlarge = button("查看大图", () => {
         if (!detail?.has_preview) return;
@@ -189,7 +196,10 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
         for (const item of kinds) {
             const row = element("div", "soda-selection-row");
             row.append(element("span", "soda-muted", labels[item]), element("span", "", selection[item]?.title ?? "未选择"));
-            if (selection[item]) row.append(button("移除", () => {delete selection[item]; updateSelection(); markSelected();}));
+            if (selection[item]) row.append(button("移除", () => {
+                if (item === kind) {detailId++; random.disabled = total === 0;}
+                delete selection[item]; updateSelection(); markSelected();
+            }));
             selected.append(row);
         }
         const value = compose(selection);
@@ -232,10 +242,18 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
         }
         filterFields.append(button("清除筛选", () => {filters = {}; source = ""; page = 1; query();}));
     }
-    async function query() {
-        controller?.abort(); controller = new AbortController();
-        const ticket = ++queryId;
+    function invalidateBrowse() {
+        controller?.abort(); queryId++; detailId++; total = 0;
+        grid.replaceChildren();
+        previous.disabled = true; next.disabled = true; random.disabled = true;
+        pageText.textContent = "—";
         status.textContent = "正在读取素材…";
+    }
+    async function query() {
+        if (closed) return;
+        clearTimeout(searchTimer);
+        invalidateBrowse(); controller = new AbortController();
+        const ticket = queryId;
         try {
             const result = await json(prefix + "/index?" + params(), {signal: controller.signal});
             if (closed || ticket !== queryId) return;
@@ -251,8 +269,9 @@ export function openLibrary({request, getText, saved, onLoad, onClose = () => {}
             for (const entry of result.entries) {
                 const card = button("", async () => {
                     const detailTicket = ++detailId;
+                    random.disabled = total === 0;
                     try {const value = await json(prefix + "/entry?" + new URLSearchParams({key: entry.key})); if (!closed && detailTicket === detailId) choose(value);}
-                    catch (error) {message(error.message);}
+                    catch (error) {if (!closed && detailTicket === detailId) message(error.message);}
                 }, "soda-card");
                 card.dataset.key = entry.key;
                 const media = element("div", "soda-media");

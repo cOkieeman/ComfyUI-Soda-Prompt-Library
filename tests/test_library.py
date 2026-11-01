@@ -179,6 +179,56 @@ class LibraryTests(unittest.TestCase):
         self.assertNotIn("text", result["entries"][0])
         self.assertLess(time.perf_counter() - start, 1.5)
 
+    def test_neons_bad_preview_metadata_keeps_text_and_other_sources(self):
+        self.write([self.row()])
+        path = self.root / "neons.json"
+        manifest = self.root / "manifest.json"
+        path.write_text(
+            json.dumps(
+                [
+                    {"id": "a", "family": "People", "tags": ["original"]},
+                    {"id": "b", "family": "People", "tags": ["second"]},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        self.config["neons_sources"] = [
+            {
+                "id": "neons",
+                "file": str(path),
+                "families": {"People": "character"},
+                "manifest": str(manifest),
+            }
+        ]
+        self.write_config()
+        for value in ([], {"a": None}, {"a": {"cover": 123}}, {"a": {"cover": "../escape.png"}}):
+            with self.subTest(manifest=value):
+                manifest.write_text(json.dumps(value), encoding="utf-8")
+                self.lib.refresh(True)
+                self.assertEqual(self.lib.query({"kind": "character"})["total"], 2)
+                self.assertEqual(self.lib.entry("neons:a")["text"], "original")
+                self.assertEqual(self.lib.query({})["total"], 1)
+        manifest.write_text("{", encoding="utf-8")
+        self.lib.refresh(True)
+        self.assertEqual(self.lib.query({"kind": "character"})["total"], 2)
+
+    def test_neons_bad_row_does_not_drop_later_rows(self):
+        path = self.root / "neons.json"
+        path.write_text(
+            json.dumps(
+                [
+                    {"id": "broken", "family": [], "tags": []},
+                    {"id": "valid", "family": "People", "tags": ["original"]},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        self.config["neons_sources"] = [
+            {"id": "neons", "file": str(path), "families": {"People": "character"}}
+        ]
+        self.write_config()
+        self.assertEqual(self.lib.query({"kind": "character"})["total"], 1)
+
     def test_malformed_config_preserves_previous_index(self):
         self.write([self.row()])
         self.assertEqual(self.lib.query({})["total"], 1)

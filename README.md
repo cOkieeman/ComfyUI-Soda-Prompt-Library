@@ -88,6 +88,8 @@ node --test tests/model.test.js
 
 布局回归页面：在仓库根目录运行 `python -m http.server 8192 --bind 127.0.0.1`，打开 `http://127.0.0.1:8192/tests/ui-fixture.html`。该页面使用 60 张通用素材卡片和 2270 字符正文，不读写个人库。检查卡片图片区域与名称完整显示、列表滚动、长正文展开与复制、窄窗口下底部按钮不遮挡预览。
 
+同一服务下打开 `http://127.0.0.1:8192/tests/ui-regression.html`，点击“运行回归测试”，可运行 13 项真实 DOM 行为测试，覆盖选择与载入、替换确认、快照、慢请求乱序、失败恢复和复制权限回退。测试使用隔离的模拟请求，不访问个人库或生成队列。
+
 GitHub Actions 配置模板位于 `docs/ci.example.yml`。当前发布凭据不具备 workflow 写入权限，因此仓库没有启用自动运行；有相应权限的维护者可以将模板复制到 `.github/workflows/check.yml` 启用 Windows / Linux 检查。
 
 [开发计划与流程图](docs/开发计划.md) · [首版验证记录](docs/验证记录.md) · [MIT License](LICENSE)

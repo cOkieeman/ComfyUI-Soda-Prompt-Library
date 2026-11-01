@@ -329,10 +329,21 @@ class Library:
         if not isinstance(rows, list):
             raise ValueError("Neons 文件必须是条目数组")
         mapping = source.get("families", {})
-        manifest = read_json(source["manifest"]) if source.get("manifest") else {}
+        manifest = {}
+        if source.get("manifest"):
+            try:
+                manifest = read_json(source["manifest"])
+                if not isinstance(manifest, dict):
+                    raise ValueError("预览索引必须是对象")
+            except (OSError, ValueError, TypeError) as exc:
+                self.warn(f"Neons 预览索引不可用，保留提示词：{exc}")
+                manifest = {}
         root = Path(source.get("preview_directory", Path(source["file"]).parent / "previews"))
         for row in rows:
-            if not isinstance(row, dict) or mapping.get(row.get("family")) not in KINDS:
+            if not isinstance(row, dict) or not isinstance(row.get("family"), str):
+                self.warn("跳过 family 类型不正确的 Neons 条目")
+                continue
+            if mapping.get(row["family"]) not in KINDS:
                 continue
             entry_id = row.get("id")
             if not isinstance(entry_id, str) or not entry_id:
@@ -351,13 +362,15 @@ class Library:
                 self.warn(f"{entry_id} 的原文不是文本")
                 continue
             preview = None
-            cover = manifest.get(re.sub(r"[^A-Za-z0-9]+", "_", entry_id).strip("_")[:140], {}).get(
-                "cover"
-            )
+            asset = manifest.get(re.sub(r"[^A-Za-z0-9]+", "_", entry_id).strip("_")[:140], {})
+            if not isinstance(asset, dict):
+                self.warn(f"{entry_id} 的预览记录不是对象，保留提示词")
+                asset = {}
+            cover = asset.get("cover")
             if cover:
                 try:
                     preview = contained_image(root, cover)
-                except ValueError as exc:
+                except (OSError, ValueError, TypeError) as exc:
                     self.warn(f"{entry_id}：{exc}")
             self.add(
                 Entry(
