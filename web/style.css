@@ -126,9 +126,8 @@
 .soda-usage summary { cursor: pointer; padding: 8px 0; }
 .soda-usage-body { padding: 2px 10px; border-left: 2px solid #52675e; overflow-wrap: anywhere; }
 .soda-usage-body p { margin: 7px 0; line-height: 1.65; white-space: pre-wrap; }
-.soda-model-settings { margin-left: auto; max-width: 320px; font-size: 12px; }
-.soda-model-settings summary { cursor: pointer; color: var(--sl-accent); padding: 6px 0; }
-.soda-model-settings .soda-field { margin: 8px 0; }
+.soda-model-picker { display: flex; align-items: center; gap: 7px; flex: none; font-size: 12px; color: var(--sl-muted); }
+.soda-model-picker select { min-width: 100px; color: var(--sl-fg); }
 .soda-model-scope { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
 .soda-model-badge { display: block; color: var(--sl-accent); font-size: 11px; overflow-wrap: anywhere; }
 .soda-card .soda-model-badge { padding: 4px 9px 0; }
@@ -139,5 +138,4 @@
 .soda-full-text[contenteditable] { cursor: text; }
 @media (max-width: 760px) {
     .soda-head { flex-wrap: wrap; }
-    .soda-model-settings { order: 3; margin-left: 0; flex: 1 1 100%; max-width: none; }
 }

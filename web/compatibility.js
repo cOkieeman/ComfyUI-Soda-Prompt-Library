@@ -16,7 +16,7 @@ export function modelCaption(entry, target) {
 }
 
 export function selectionProblem(entry, target, allowDiscouraged = false) {
-    if (!modelNames[target]) return "请先在适配设置中绑定工作流的模型系列。";
+    if (!modelNames[target]) return "请先选择上方模型库，绑定工作流的模型系列。";
     const status = modelStatus(entry, target);
     if (entry?.kind === "content" && status !== "verified") return `此内容配方未验证适用于 ${modelNames[target]}，可查看和复制；请切换到对应版本后再加入组合。`;
     if (status === "not_recommended" && !allowDiscouraged) return `此素材在 ${modelNames[target]} 上不推荐，可在详情中主动试用。`;

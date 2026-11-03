@@ -406,9 +406,9 @@ test('预览手改后换素材不覆盖手改；可主动恢复组合原文', as
 test('工作流系列绑定控制查询；切换系列保留已选快照并阻止错配内容', async () => {
     let family = null; const state = mount({onTargetChange:value=>{family=value;}}); await tick();
     button('内容').click(); await tick(); cards()[0].click(); await tick();
-    const select = document.querySelector('[aria-label="工作流模型系列"]'); select.value = 'krea2'; select.dispatchEvent(new Event('change')); await tick();
+    const select = document.querySelector('[aria-label="模型库"]'); select.value = 'krea2'; select.dispatchEvent(new Event('change')); await tick();
     assert(family === 'krea2', '绑定修改没有回写工作流');
-    assert(document.querySelector('.soda-model-settings summary').textContent.includes('Krea2'), '当前系列标识未更新');
+    assert(select.selectedOptions[0].textContent === 'Krea2', '当前模型库标识未更新');
     assert(preview() === entry('content').text, '修改模型丢弃了旧快照');
     assert(button('载入正文').disabled && state.loaded() === null, '不同模型内容可以直接载入');
 });
@@ -465,6 +465,19 @@ test('来源正文更新时不把当前模型标记回填到旧快照', async ()
     mount({saved:snapshot({content:value}),request:async url=>url.includes('/entry?') ? response({...value,text:'new source text',version:'2',models:{anima:'verified'}}) : base.request(url)});
     await tick(); await tick();
     assert(preview() === value.text && button('载入正文').disabled, '来源新版本覆盖了旧快照正文或验证依据');
+});
+
+test('模型库是唯一日常选择器；旧来源筛选不再隐藏其他库', async () => {
+    const base=mount(); closePanel(); const urls=[];
+    mount({browseState:{kind:'content',content:{source:'old_photography'}},request:url=>{urls.push(url);return base.request(url);}}); await tick();
+    const picker=document.querySelector('[aria-label="模型库"]');
+    assert(picker && !document.querySelector('[aria-label="数据源"]') && !document.querySelector('.soda-model-settings'), '模型选择与来源选择仍然重复');
+    assert([...picker.options].map(o=>o.value).join(',') === ',anima,krea2,moss', '模型库选项不完整');
+    assert(!new URL(urls[0],location.origin).searchParams.has('source'), '旧隐藏来源筛选仍在限制列表');
+    picker.value='krea2';picker.dispatchEvent(new Event('change'));await tick();
+    button('服饰').click();await tick();button('角色').click();await tick();
+    assert(picker.value==='krea2', '切页签后模型库选择丢失');
+    assert(urls.filter(url=>url.includes('/index?')).slice(-3).every(url=>new URL(url,location.origin).searchParams.get('target_model')==='krea2'), '三个页签没有共用模型库范围');
 });
 
 document.querySelector('#run').onclick = async () => {

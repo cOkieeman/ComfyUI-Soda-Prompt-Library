@@ -36,7 +36,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     let draftDirty = draftText !== compose(selection);
     let kind = kinds.includes(browseState.kind) ? browseState.kind : "character";
     const initialView = viewFor(kind);
-    let page = initialView.page, source = initialView.source, detail = null;
+    let page = initialView.page, detail = null;
     let filters = initialView.filters, total = 0, queryId = 0, detailId = 0, controller;
     let loading = true, desiredScroll = initialView.scrollTop, facets = {};
     let pendingFilterScroll = initialView.filterScroll;
@@ -58,26 +58,24 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         onClose();
         oldFocus?.focus({preventScroll: true});
     };
-    const modelSettings = element("details", "soda-model-settings");
-    const modelSummary = element("summary", "", `当前适配：${modelNames[target] ?? "未绑定"}`);
-    const modelLabel = element("label", "soda-field", "工作流模型系列（社区微调按底模系列）");
-    const modelSelect = element("select"); modelSelect.setAttribute("aria-label", "工作流模型系列");
-    modelSelect.append(element("option", "", "请选择模型系列")); modelSelect.firstChild.value = "";
+    const modelLabel = element("label", "soda-model-picker", "模型库");
+    const modelSelect = element("select"); modelSelect.setAttribute("aria-label", "模型库");
+    modelSelect.title = "选择当前使用的模型系列；社区微调按底模系列选择，三个页签共用。";
+    modelSelect.append(element("option", "", "请选择")); modelSelect.firstChild.value = ""; modelSelect.firstChild.disabled = true;
     for (const [value, label] of Object.entries(modelNames)) {const option = element("option", "", label); option.value = value; modelSelect.append(option);}
     modelSelect.value = target; modelLabel.append(modelSelect);
     const otherLabel = element("label", "soda-model-scope");
     const otherModels = element("input"); otherModels.type = "checkbox"; otherModels.setAttribute("aria-label", "浏览其他系列与不推荐项");
     otherLabel.append(otherModels, document.createTextNode("浏览其他系列与不推荐项"));
-    modelSettings.append(modelSummary, modelLabel, otherLabel, element("p", "soda-muted", "角色与服饰可跨模型试用；内容配方按已验证系列选择。"));
     modelSelect.addEventListener("change", () => {
-        target = modelSelect.value; modelSummary.textContent = `当前适配：${modelNames[target] ?? "未绑定"}`;
+        target = modelSelect.value;
         onTargetChange(target);
-        source = ""; filters = {}; page = 1;
+        filters = {}; page = 1;
         for (const item of kinds) delete browseState[item];
         categories.clearSearch(); updateSelection(); if (detail) inspect(detail); query();
     });
     otherModels.addEventListener("change", () => {showOther = otherModels.checked; page = 1; query();});
-    heading.append(headingText, modelSettings, button("关闭", close));
+    heading.append(headingText, button("关闭", close));
     dialog.addEventListener("cancel", event => {event.preventDefault(); close();});
     dialog.addEventListener("click", event => {
         if (event.target !== dialog) return;
@@ -94,7 +92,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
             saveView();
             kind = item;
             const view = viewFor(kind);
-            page = view.page; filters = view.filters; source = view.source; search.value = view.q;
+            page = view.page; filters = view.filters; search.value = view.q;
             categories.setState(view.categoryView); filterBox.open = view.filtersOpen;
             filterBox.hidden = kind !== "content";
             pendingFilterScroll = view.filterScroll;
@@ -121,8 +119,6 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         clearTimeout(searchTimer); invalidateBrowse();
         searchTimer = setTimeout(() => query(), 200);
     });
-    const sources = element("select"); sources.setAttribute("aria-label", "数据源");
-    sources.addEventListener("change", () => {source = sources.value; filters.category = []; page = 1; query();});
     const refresh = button("刷新库", async () => {
         refresh.disabled = true;
         const scroll = loading ? desiredScroll : grid.scrollTop;
@@ -152,7 +148,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         finally {if (!closed && ticket === detailId) random.disabled = total === 0;}
     });
     random.hidden = kind !== "content";
-    toolbar.append(search, sources, refresh, random);
+    toolbar.append(search, modelLabel, refresh, random);
 
     const body = element("div", "soda-body");
     const browse = element("section", "soda-browse");
@@ -258,6 +254,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     body.append(categories.element, browse, side);
     const diagnostics = element("details", "soda-diagnostics");
     diagnostics.append(element("summary", "", "数据源状态"));
+    diagnostics.append(otherLabel, element("p", "soda-muted", "模型库在上方选择。角色与服饰可跨模型试用；内容配方按已验证系列选择。"));
     const warnings = element("div"); diagnostics.append(warnings);
     dialog.append(heading, tabs, toolbar, body, diagnostics);
     document.body.append(dialog);
@@ -268,12 +265,12 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
 
     function viewFor(item) {
         const stored = browseState[item] ?? {};
-        return {page: 1, source: "", filters: {}, q: "", scrollTop: 0, filtersOpen: false, filterScroll: {},
+        return {page: 1, filters: {}, q: "", scrollTop: 0, filtersOpen: false, filterScroll: {},
             ...stored, categoryView: stored.categoryView ?? {q: stored.categoryQuery ?? "", scrollTop: stored.filterScroll?.category ?? 0}};
     }
     function saveView() {
         browseState.kind = kind;
-        browseState[kind] = {page, source, filters, q: search.value, categoryView: categories.getState(),
+        browseState[kind] = {page, filters, q: search.value, categoryView: categories.getState(),
             scrollTop: loading ? desiredScroll : grid.scrollTop, filtersOpen: filterBox.open,
             filterScroll: pendingFilterScroll ?? captureFilterScroll()};
     }
@@ -285,7 +282,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     }
     function message(text) {feedback.textContent = text;}
     function loadProblem() {
-        if (!target) return "请先点击顶部“当前适配”，绑定工作流模型系列。";
+        if (!target) return "请先选择上方模型库，绑定工作流的模型系列。";
         return Object.values(selection).map(entry => selectionProblem(entry, target, entry.model_trial === target)).find(Boolean) ?? "";
     }
     function updateLoadState() {
@@ -383,7 +380,6 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     }
     function params(roll = false) {
         const result = new URLSearchParams({kind, q: search.value, page: String(page)});
-        if (source) result.set("source", source);
         if (target) result.set("target_model", target);
         if (showOther) result.set("model_scope", "all");
         if (roll) result.set("random", "1");
@@ -428,7 +424,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
             select.addEventListener("change", () => {filters[name] = [...select.selectedOptions].map(o => o.value); page = 1; query();});
             field.append(select); filterFields.append(field);
         }
-        filterFields.append(button("清除筛选", () => {filters = {}; source = ""; categories.clearSearch(); page = 1; query();}));
+        filterFields.append(button("清除筛选", () => {filters = {}; categories.clearSearch(); page = 1; query();}));
         if (focused) {
             const replacement = [...filterFields.querySelectorAll('input, select, button')].find(el =>
                 el.tagName === focused.tagName && (el.tagName === 'BUTTON' ? el.textContent === focused.textContent :
@@ -460,17 +456,9 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
             if (target && result.model_filtering !== true) throw new Error("请重启 ComfyUI 以启用模型适配筛选。");
             total = result.total; page = result.page;
             status.textContent = total ? `找到 ${total.toLocaleString()} 条 · 当前展示 ${result.entries.length} 条` :
-                target && kind === "content" && !showOther ? `没有匹配的 ${modelNames[target]} 已验证内容。可更换库或搜索条件；适配设置中可查看其他系列。` : "没有匹配的素材。可更换筛选，或查看下方数据源状态。";
+                target && kind === "content" && !showOther ? `没有匹配的 ${modelNames[target]} 已验证内容。可更换模型库、分类或搜索条件。` : "没有匹配的素材。可更换筛选，或查看下方数据源状态。";
             pageText.textContent = `${page} / ${Math.max(1, Math.ceil(total / result.page_size))}`;
             previous.disabled = page <= 1; next.disabled = page * result.page_size >= total; random.disabled = total === 0;
-            sources.replaceChildren(element("option", "", "全部数据源")); sources.firstChild.value = "";
-            for (const s of result.sources) {
-                if (Array.isArray(s.kinds) && !s.kinds.includes(kind)) continue;
-                const otherOnly = target && kind === "content" && !showOther && Object.keys(s.models ?? {}).length && s.models[target] !== "verified";
-                if (otherOnly && s.id !== source) continue;
-                const o = element("option", "", s.label + (otherOnly ? "（其他系列）" : "")); o.value = s.id; o.disabled = !!otherOnly; sources.append(o);
-            }
-            sources.value = source;
             categoryTreeSupported = result.category_tree === true;
             facets = result.facets; renderFilters(facets, pendingFilterScroll ?? captureFilterScroll()); pendingFilterScroll = null;
             grid.replaceChildren();

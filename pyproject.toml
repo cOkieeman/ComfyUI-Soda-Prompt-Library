@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-soda-prompt-library"
-version = "0.3.0"
+version = "0.3.1"
 description = "Local prompt browsing, composition and editable snapshots for ComfyUI"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
