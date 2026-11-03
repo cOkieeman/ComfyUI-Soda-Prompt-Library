@@ -6,6 +6,7 @@
       "id": "local",
       "label": "本地内容库",
       "kind": "content",
+      "models": {"anima": "untested"},
       "directory": "D:/your-library/content",
       "preview_directory": "D:/your-library/previews"
     }

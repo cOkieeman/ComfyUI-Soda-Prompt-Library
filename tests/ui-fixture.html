@@ -13,7 +13,7 @@ button, textarea { min-height: 0; }
 <script type="module">
 import {openLibrary} from '../web/panel.js';
 const longText = Array.from({length: 30}, (_, i) => `Section ${i + 1}: adult traveler, blue coat, standing in a garden, soft daylight.`).join('\n');
-const entry = (kind, i) => ({key: `${kind}:${i}`, id: String(i), source: 'fixture', kind, title: `测试素材 ${i + 1} · 完整显示名称`, category: '原创示例 / 长分类名称', text: i === 0 ? longText : `generic ${kind} ${i + 1}`, has_preview: false, version: '1'});
+const entry = (kind, i) => ({key: `${kind}:${i}`, id: String(i), source: 'fixture', kind, title: `测试素材 ${i + 1} · 完整显示名称`, category: '原创示例 / 长分类名称', text: i === 0 ? longText : `generic ${kind} ${i + 1}`, has_preview: false, version: '1', models: {anima:'verified'}});
 const request = async url => {
     const u = new URL(url, location.origin);
     const kind = u.searchParams.get('kind') || 'character';
@@ -26,8 +26,8 @@ const request = async url => {
     } else {
         data = {entries: Array.from({length: 60}, (_, i) => entry(kind, i)), total: 120, page: Number(u.searchParams.get('page') || 1), page_size: 60, category_tree: true, facets: {category: {'原创角色/旅人/旅行者': 20, '原创角色/旅人/向导': 20, '原创角色/城镇/工匠': 20, '原创角色/城镇/花匠': 20, '原创角色/海边/水手': 20, '原创角色/海边/灯塔守望者': 20}}, sources: [{id: 'fixture', label: '通用测试素材', status: 'ready', count: 120}], warnings: [], revision: 'fixture'};
     }
-    return new Response(JSON.stringify(data), {headers: {'Content-Type': 'application/json'}});
+    return new Response(JSON.stringify(data?.entries ? {model_filtering:true,...data} : data), {headers: {'Content-Type': 'application/json'}});
 };
-document.querySelector('#open').onclick = () => openLibrary({request, getText: () => '', onLoad: text => {document.querySelector('#result').textContent = text;}});
+document.querySelector('#open').onclick = () => openLibrary({request, targetModel:'anima', getText: () => '', onLoad: text => {document.querySelector('#result').textContent = text;}});
 </script>
 </html>

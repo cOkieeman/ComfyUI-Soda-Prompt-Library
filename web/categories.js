@@ -24,7 +24,10 @@ export function categoryTree(counts) {
     }
     return roots;
 }
-const ordered = nodes => [...nodes.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+const browseOrder = ['单人姿态', '服饰主题', '情绪与情境', '单人成人内容', '双人互动', '奇幻与特殊'];
+const rank = node => !node.path.includes('/') && browseOrder.includes(node.label) ? browseOrder.indexOf(node.label) :
+    /^(其他|未分类)/.test(node.label) ? 100 : 50;
+const ordered = nodes => [...nodes.values()].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label, 'zh-CN'));
 
 export function createCategories({state = {}, onChange, onMessage}) {
     const root = el('aside', 'soda-categories'); root.setAttribute('aria-label', '分类导航');

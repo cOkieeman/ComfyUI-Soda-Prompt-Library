@@ -1,8 +1,10 @@
-import {compose, kinds, labels, restore, snapshot} from "./model.js";
-import {createCategories} from "./categories.js?v=0.2.0";
+import {compose, kinds, labels, restore, snapshot} from "./model.js?v=0.3.0";
+import {createCategories} from "./categories.js?v=0.3.0";
+import {usageLines} from "./usage.js";
+import {modelNames, modelCaption, modelStatus, selectionProblem, filterCaption} from "./compatibility.js";
 
 const prefix = "/soda_prompt_library";
-const filterLabels = {family: "族", undress: "着装状态", intensity: "强度", scene: "场景", camera: "机位", focal: "焦段"};
+const filterLabels = {undress: "着装状态", intensity: "强度", scene: "场景", camera: "机位", focal: "焦段"};
 
 function element(tag, className, text) {
     const el = document.createElement(tag);
@@ -18,11 +20,20 @@ function button(text, action, className = "") {
     return el;
 }
 
-export function openLibrary({request, getText, saved, browseState = {}, onLoad, onClose = () => {}}) {
+function pastePlainText(event) {
+    if (!event.clipboardData) return;
+    event.preventDefault();
+    document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+}
+
+export function openLibrary({request, getText, saved, targetModel = saved?.target_model ?? "", onTargetChange = () => {}, browseState = {}, onLoad, onClose = () => {}}) {
     const oldFocus = document.activeElement;
     const dialog = element("dialog", "soda-library");
     dialog.setAttribute("aria-label", "Soda 提示词库");
     const selection = restore(saved);
+    let target = modelNames[targetModel] ? targetModel : "";
+    let showOther = false, draftText = typeof saved?.draft_text === "string" ? saved.draft_text : compose(selection);
+    let draftDirty = draftText !== compose(selection);
     let kind = kinds.includes(browseState.kind) ? browseState.kind : "character";
     const initialView = viewFor(kind);
     let page = initialView.page, source = initialView.source, detail = null;
@@ -47,7 +58,26 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         onClose();
         oldFocus?.focus({preventScroll: true});
     };
-    heading.append(headingText, button("关闭", close));
+    const modelSettings = element("details", "soda-model-settings");
+    const modelSummary = element("summary", "", `当前适配：${modelNames[target] ?? "未绑定"}`);
+    const modelLabel = element("label", "soda-field", "工作流模型系列（社区微调按底模系列）");
+    const modelSelect = element("select"); modelSelect.setAttribute("aria-label", "工作流模型系列");
+    modelSelect.append(element("option", "", "请选择模型系列")); modelSelect.firstChild.value = "";
+    for (const [value, label] of Object.entries(modelNames)) {const option = element("option", "", label); option.value = value; modelSelect.append(option);}
+    modelSelect.value = target; modelLabel.append(modelSelect);
+    const otherLabel = element("label", "soda-model-scope");
+    const otherModels = element("input"); otherModels.type = "checkbox"; otherModels.setAttribute("aria-label", "浏览其他系列与不推荐项");
+    otherLabel.append(otherModels, document.createTextNode("浏览其他系列与不推荐项"));
+    modelSettings.append(modelSummary, modelLabel, otherLabel, element("p", "soda-muted", "角色与服饰可跨模型试用；内容配方按已验证系列选择。"));
+    modelSelect.addEventListener("change", () => {
+        target = modelSelect.value; modelSummary.textContent = `当前适配：${modelNames[target] ?? "未绑定"}`;
+        onTargetChange(target);
+        source = ""; filters = {}; page = 1;
+        for (const item of kinds) delete browseState[item];
+        categories.clearSearch(); updateSelection(); if (detail) inspect(detail); query();
+    });
+    otherModels.addEventListener("change", () => {showOther = otherModels.checked; page = 1; query();});
+    heading.append(headingText, modelSettings, button("关闭", close));
     dialog.addEventListener("cancel", event => {event.preventDefault(); close();});
     dialog.addEventListener("click", event => {
         if (event.target !== dialog) return;
@@ -70,7 +100,9 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             pendingFilterScroll = view.filterScroll;
             facets = {}; renderFilters(facets, {});
             detailId++; detail = null; raw.value = ""; copy.disabled = true; enlarge.disabled = true;
+            renderUsage(null);
             detailTitle.textContent = "条目原文";
+            detailModel.textContent = ""; tryAnyway.hidden = true;
             if (selection[kind]) inspect(selection[kind]);
             for (const k of kinds) tabButtons[k].setAttribute("aria-pressed", String(k === kind));
             random.hidden = kind !== "content";
@@ -150,6 +182,13 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     const rawDetails = element("details", "soda-raw-details");
     const detailTitle = element("summary", "", "条目原文");
     const raw = element("textarea", "soda-raw"); raw.readOnly = true;
+    const detailModel = element("p", "soda-model-detail");
+    const tryAnyway = button("仍要试用此素材", () => detail && choose(detail, true)); tryAnyway.hidden = true;
+    const usageDetails = element("details", "soda-usage"); usageDetails.hidden = true;
+    const usageTitle = element("summary", "", "使用条件与说明");
+    const usageBody = element("div", "soda-usage-body");
+    usageDetails.append(usageTitle, usageBody);
+    let usageCatalog;
     raw.setAttribute("aria-label", "条目原文"); raw.placeholder = "点选卡片，查看完整原文";
     const copy = button("复制提示词", async () => {
         if (!detail) return;
@@ -175,18 +214,26 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     const detailActions = element("div", "soda-detail-actions"); detailActions.append(copy, enlarge);
     rawDetails.append(detailTitle, raw);
     const preview = element("pre", "soda-preview");
-    preview.setAttribute("aria-label", "合并预览"); preview.tabIndex = 0;
+    preview.contentEditable = "true"; preview.setAttribute("role", "textbox"); preview.setAttribute("aria-multiline", "true");
+    preview.setAttribute("aria-label", "合并预览，可手动修改"); preview.tabIndex = 0;
+    preview.addEventListener("paste", pastePlainText);
+    preview.addEventListener("input", () => {draftText = preview.innerText; draftDirty = draftText !== compose(selection); updateLoadState();});
+    const resetDraft = button("恢复组合原文", () => {draftText = compose(selection); draftDirty = false; preview.textContent = draftText; updateLoadState(); message("已恢复所选素材的原文组合，库文件未改变。");});
+    resetDraft.title = "放弃本次预览中的手改，恢复角色、服饰、内容的原文组合";
     const expand = button("展开预览", () => {
-        const value = compose(selection);
+        const value = draftText;
         if (!value) return;
         const textDialog = element("dialog", "soda-text-dialog");
         textDialog.setAttribute("aria-label", "完整合并预览");
         const textHeading = element("header", "soda-text-head");
-        const fullText = element("pre", "soda-full-text", value); fullText.tabIndex = 0;
+        const fullText = element("pre", "soda-full-text", value); fullText.tabIndex = 0; fullText.contentEditable = "true";
+        fullText.setAttribute("role", "textbox"); fullText.setAttribute("aria-multiline", "true");
+        fullText.addEventListener("paste", pastePlainText);
+        fullText.addEventListener("input", () => {draftText = fullText.innerText; draftDirty = draftText !== compose(selection); preview.textContent = draftText; updateLoadState();});
         fullText.setAttribute("aria-label", "完整正文");
         closeText = () => {textDialog.close(); textDialog.remove(); closeText = null; expand.focus({preventScroll: true});};
         const copyAll = button("复制全文", async () => {
-            try {await navigator.clipboard.writeText(value); copyAll.textContent = "已复制";}
+            try {await navigator.clipboard.writeText(fullText.innerText); copyAll.textContent = "已复制";}
             catch {copyAll.textContent = "请选中文字后按 Ctrl+C"; fullText.focus();}
         });
         textHeading.append(element("h3", "", "完整合并预览"), copyAll, button("关闭预览", () => closeText?.()));
@@ -195,16 +242,16 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         document.body.append(textDialog); textDialog.showModal();
     });
     const previewHeading = element("div", "soda-preview-heading");
-    previewHeading.append(element("h3", "", "合并预览"), expand);
+    previewHeading.append(element("h3", "", "合并预览 · 可手改"), expand);
     const feedback = element("p", "soda-feedback"); feedback.setAttribute("role", "status");
     const confirmation = element("div", "soda-confirm"); confirmation.hidden = true;
     confirmation.append(element("p", "", "将整段替换当前正文，包括你的手改。"), button("确认替换正文", commit, "soda-primary"), button("保留当前正文", () => {confirmation.hidden = true;}));
     const load = button("载入正文", () => {
-        if (!compose(selection)) return;
-        if (getText() && getText() !== compose(selection)) confirmation.hidden = false;
+        if (!draftText || loadProblem()) return;
+        if (getText() && getText() !== draftText) confirmation.hidden = false;
         else commit();
     }, "soda-primary");
-    sideScroll.append(selected, sourceStatus, detailActions, rawDetails, previewHeading, preview);
+    sideScroll.append(selected, sourceStatus, detailModel, tryAnyway, detailActions, rawDetails, usageDetails, previewHeading, preview, resetDraft);
     const sideFooter = element("div", "soda-side-footer");
     sideFooter.append(feedback, confirmation, load);
     side.append(sideScroll, sideFooter);
@@ -237,7 +284,17 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         return response.json();
     }
     function message(text) {feedback.textContent = text;}
-    function commit() {onLoad(compose(selection), snapshot(selection)); close();}
+    function loadProblem() {
+        if (!target) return "请先点击顶部“当前适配”，绑定工作流模型系列。";
+        return Object.values(selection).map(entry => selectionProblem(entry, target, entry.model_trial === target)).find(Boolean) ?? "";
+    }
+    function updateLoadState() {
+        const problem = loadProblem();
+        load.disabled = !draftText || !!problem; load.title = problem;
+        expand.disabled = !draftText; resetDraft.hidden = !draftDirty;
+        confirmation.hidden = true;
+    }
+    function commit() {if (loadProblem()) {message(loadProblem()); return;} onLoad(draftText, snapshot(selection, {target_model: target, draft_text: draftText})); close();}
     function updateSelection() {
         selected.replaceChildren();
         for (const item of kinds) {
@@ -253,6 +310,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
                 const name = button(entry.title, () => inspectSelected(entry), "soda-selection-name");
                 name.title = "查看已选原文";
                 caption.append(name);
+                caption.append(element("span", "soda-model-badge", modelCaption(entry, target)));
             } else {
                 row.classList.add("soda-selection-empty");
                 caption.append(element("span", "soda-muted", "未选择"));
@@ -264,22 +322,49 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             }));
             selected.append(row);
         }
-        const value = compose(selection);
-        preview.textContent = value || "角色 → 服饰 → 内容，可跳过任一类";
-        load.disabled = !value; expand.disabled = !value;
-        confirmation.hidden = true;
+        const scroll = sideScroll.scrollTop;
+        if (!draftDirty) draftText = compose(selection);
+        preview.textContent = draftText;
+        preview.dataset.placeholder = "角色 → 服饰 → 内容，可跳过任一类";
+        updateLoadState();
+        sideScroll.scrollTop = scroll;
     }
     function markSelected() {
         for (const card of grid.children) card.setAttribute("aria-pressed", String(card.dataset.key === selection[kind]?.key));
     }
-    function choose(entry) {
+    function choose(entry, allowDiscouraged = false) {
         if (entry.kind !== kind) return;
+        const problem = selectionProblem(entry, target, allowDiscouraged);
+        if (problem) {inspect(entry); message(problem); return;}
+        if (allowDiscouraged) entry = {...entry, model_trial: target};
         selection[kind] = structuredClone(entry); inspect(entry);
-        updateSelection(); markSelected(); message("已加入待选组合，正文尚未改变。");
+        updateSelection(); markSelected();
+        message(draftDirty ? "组合已改变，已保留预览手改；点击“恢复组合原文”可重新合并。" :
+            modelStatus(entry, target) === "verified" ? "已加入待选组合，正文尚未改变。" : "已加入待选组合；此素材在当前系列未验证，请自行试用。");
     }
     function inspect(entry) {
         detail = entry;
         detailTitle.textContent = entry.title; raw.value = entry.text; copy.disabled = false; enlarge.disabled = !entry.has_preview;
+        detailModel.textContent = modelCaption(entry, target) + (entry.preview_model ? `\n预览出图：${entry.preview_model}` : "\n预览出图模型未记录");
+        tryAnyway.hidden = entry.kind === "content" || modelStatus(entry, target) !== "not_recommended" || !target;
+        renderUsage(entry.usage);
+        loadUsageFallback(entry);
+    }
+    function renderUsage(usage) {
+        const scroll = sideScroll.scrollTop;
+        const lines = usageLines(usage);
+        usageBody.replaceChildren(...lines.map(line => element("p", "", line)));
+        usageDetails.hidden = !lines.length;
+        usageTitle.textContent = usage?.required_loras?.length ? "使用条件 · 需自行加载 LoRA" : "使用条件与预览说明";
+        sideScroll.scrollTop = scroll;
+    }
+    async function loadUsageFallback(entry) {
+        // Existing ComfyUI servers may still have the older Python adapter loaded.
+        // A user-owned local catalog provides display metadata until their next normal restart.
+        usageCatalog ??= json("/userdata/soda_prompt_library_usage.json", {cache: "no-store"}).catch(() => null);
+        const catalog = await usageCatalog;
+        const value = catalog?.version === 1 ? catalog.entries?.[entry.key] : null;
+        if (!closed && detail === entry && value?.text === entry.text && String(value.version) === String(entry.version)) renderUsage({...value.usage, ...entry.usage});
     }
     function inspectSelected(entry) {
         inspect(entry); rawDetails.open = true;
@@ -299,6 +384,8 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     function params(roll = false) {
         const result = new URLSearchParams({kind, q: search.value, page: String(page)});
         if (source) result.set("source", source);
+        if (target) result.set("target_model", target);
+        if (showOther) result.set("model_scope", "all");
         if (roll) result.set("random", "1");
         result.set("category_mode", "branch");
         for (const [name, values] of Object.entries(filters)) for (const value of values) result.append(name, value);
@@ -334,7 +421,7 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
             select.dataset.filter = name;
             select.setAttribute("aria-label", label);
             for (const [value, count] of values.sort((a, b) => a[0].localeCompare(b[0]))) {
-                const option = element("option", "", `${value} (${count})`);
+                const option = element("option", "", `${filterCaption(name, value)} (${count})`);
                 option.value = value; option.selected = filters[name]?.includes(value) ?? false;
                 select.append(option);
             }
@@ -370,12 +457,19 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
         try {
             const result = await json(prefix + "/index?" + params(), {signal: controller.signal});
             if (closed || ticket !== queryId) return;
+            if (target && result.model_filtering !== true) throw new Error("请重启 ComfyUI 以启用模型适配筛选。");
             total = result.total; page = result.page;
-            status.textContent = total ? `找到 ${total.toLocaleString()} 条 · 当前展示 ${result.entries.length} 条` : "没有匹配的素材。可更换筛选，或查看下方数据源状态。";
+            status.textContent = total ? `找到 ${total.toLocaleString()} 条 · 当前展示 ${result.entries.length} 条` :
+                target && kind === "content" && !showOther ? `没有匹配的 ${modelNames[target]} 已验证内容。可更换库或搜索条件；适配设置中可查看其他系列。` : "没有匹配的素材。可更换筛选，或查看下方数据源状态。";
             pageText.textContent = `${page} / ${Math.max(1, Math.ceil(total / result.page_size))}`;
             previous.disabled = page <= 1; next.disabled = page * result.page_size >= total; random.disabled = total === 0;
             sources.replaceChildren(element("option", "", "全部数据源")); sources.firstChild.value = "";
-            for (const s of result.sources) {const o = element("option", "", s.label); o.value = s.id; sources.append(o);}
+            for (const s of result.sources) {
+                if (Array.isArray(s.kinds) && !s.kinds.includes(kind)) continue;
+                const otherOnly = target && kind === "content" && !showOther && Object.keys(s.models ?? {}).length && s.models[target] !== "verified";
+                if (otherOnly && s.id !== source) continue;
+                const o = element("option", "", s.label + (otherOnly ? "（其他系列）" : "")); o.value = s.id; o.disabled = !!otherOnly; sources.append(o);
+            }
             sources.value = source;
             categoryTreeSupported = result.category_tree === true;
             facets = result.facets; renderFilters(facets, pendingFilterScroll ?? captureFilterScroll()); pendingFilterScroll = null;
@@ -390,7 +484,11 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
                 card.dataset.key = entry.key;
                 const category = element("span", "soda-category", entry.category?.split('/').at(-1));
                 category.title = entry.category ?? "";
-                card.append(mediaFor(entry, result.revision), element("strong", "", entry.title), category);
+                const hasOutfit = entry.has_outfit === true || entry.kind === "outfit" || entry.category?.startsWith("服饰主题/") || /^【衣】/.test(entry.title || "");
+                const badge = element("span", hasOutfit ? "soda-outfit-badge" : "soda-outfit-badge is-none", hasOutfit ? "含服饰描述" : "服饰未标注");
+                badge.title = "完整保留条目；角色或内容可能自带衣服，请在组合预览中手动检查和替换。";
+                const modelBadge = element("span", "soda-model-badge", modelCaption(entry, target));
+                card.append(mediaFor(entry, result.revision), element("strong", "", entry.title), category, modelBadge, badge);
                 grid.append(card);
             }
             grid.setAttribute('aria-busy', 'false');
@@ -406,8 +504,17 @@ export function openLibrary({request, getText, saved, browseState = {}, onLoad, 
     }
     async function checkSaved() {
         const missing = [];
-        for (const entry of Object.values(restore(saved))) {
-            try {await json(prefix + "/entry?" + new URLSearchParams({key: entry.key}));}
+        for (const [item, entry] of Object.entries(selection)) {
+            try {
+                const current = await json(prefix + "/entry?" + new URLSearchParams({key: entry.key}));
+                if (!closed && selection[item] === entry && current.text === entry.text && String(current.version) === String(entry.version)) {
+                    // Enrich legacy snapshots only when their exact source version still matches.
+                    // Never replace saved text or infer validation for a changed source.
+                    if (!entry.models) entry.models = current.models;
+                    if (!entry.preview_model) entry.preview_model = current.preview_model;
+                    updateSelection(); if (detail === entry) inspect(entry);
+                }
+            }
             catch {missing.push(entry.title);}
         }
         if (!closed) {

@@ -5,8 +5,8 @@ export function compose(selection) {
     return kinds.map(kind => selection[kind]?.text ?? "").filter(text => text !== "").join("\n\n");
 }
 
-export function snapshot(selection) {
-    return {version: 1, selection: JSON.parse(JSON.stringify(selection))};
+export function snapshot(selection, options = {}) {
+    return {version: 1, selection: JSON.parse(JSON.stringify(selection)), ...options};
 }
 
 export function restore(value) {

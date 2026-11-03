@@ -119,3 +119,25 @@
     .soda-text-head { flex-wrap: wrap; }
     .soda-head p { font-size: 12px; }
 }
+.soda-outfit-badge { display: inline-block; margin: 4px 9px 0; padding: 1px 7px; border-radius: 9px; background: rgba(255,107,107,.16); color: #ff7b72; font-size: 11px; line-height: 1.6; }
+.soda-outfit-badge.is-none { background: rgba(127,138,155,.18); color: #8b96a8; }
+.soda-usage { margin: 12px 0; font-size: 12px; color: #c0cdc8; }
+.soda-usage[hidden] { display: none; }
+.soda-usage summary { cursor: pointer; padding: 8px 0; }
+.soda-usage-body { padding: 2px 10px; border-left: 2px solid #52675e; overflow-wrap: anywhere; }
+.soda-usage-body p { margin: 7px 0; line-height: 1.65; white-space: pre-wrap; }
+.soda-model-settings { margin-left: auto; max-width: 320px; font-size: 12px; }
+.soda-model-settings summary { cursor: pointer; color: var(--sl-accent); padding: 6px 0; }
+.soda-model-settings .soda-field { margin: 8px 0; }
+.soda-model-scope { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+.soda-model-badge { display: block; color: var(--sl-accent); font-size: 11px; overflow-wrap: anywhere; }
+.soda-card .soda-model-badge { padding: 4px 9px 0; }
+.soda-model-detail { white-space: pre-wrap; color: var(--sl-muted); font-size: 12px; }
+.soda-preview[contenteditable] { cursor: text; }
+.soda-preview:empty::before { content: attr(data-placeholder); color: var(--sl-muted); pointer-events: none; }
+.soda-library .soda-preview { max-height: 360px; overflow-y: auto; }
+.soda-full-text[contenteditable] { cursor: text; }
+@media (max-width: 760px) {
+    .soda-head { flex-wrap: wrap; }
+    .soda-model-settings { order: 3; margin-left: 0; flex: 1 1 100%; max-width: none; }
+}

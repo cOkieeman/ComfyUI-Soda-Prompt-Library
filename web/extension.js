@@ -1,10 +1,10 @@
 import {app} from "../../scripts/app.js";
 import {api} from "../../scripts/api.js";
-import {openLibrary} from "./panel.js?v=0.2.0";
+import {openLibrary} from "./panel.js?v=0.3.0";
 
 const stylesheet = document.createElement("link");
 stylesheet.rel = "stylesheet";
-stylesheet.href = new URL("./style.css?v=0.2.0", import.meta.url).href;
+stylesheet.href = new URL("./style.css?v=0.3.0", import.meta.url).href;
 document.head.append(stylesheet);
 
 app.registerExtension({
@@ -26,6 +26,13 @@ app.registerExtension({
                     request: (url, options) => api.fetchApi(url, options),
                     getText: () => text.value ?? "",
                     saved: this.properties.soda_library,
+                    targetModel: this.properties.soda_model_family ?? this.properties.soda_library?.target_model ?? "",
+                    onTargetChange: family => {
+                        this.graph?.beforeChange?.();
+                        this.properties.soda_model_family = family;
+                        this.graph?.afterChange?.();
+                        this.setDirtyCanvas(true, true);
+                    },
                     browseState,
                     onLoad: (value, state) => {
                         this.graph?.beforeChange?.();
@@ -33,6 +40,7 @@ app.registerExtension({
                         if (editor()) editor().value = value;
                         text.callback?.(value);
                         this.properties.soda_library = state;
+                        this.properties.soda_model_family = state.target_model;
                         this.graph?.afterChange?.();
                         this.setDirtyCanvas(true, true);
                     },

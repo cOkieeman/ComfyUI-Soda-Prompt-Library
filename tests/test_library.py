@@ -59,6 +59,123 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(self.lib.entry("local:a")["text"], "adult, solo,  garden,  sunlight, ")
         self.assertEqual(self.lib.entry("local:b")["text"], " \nquality, eyes, shirt,, \n ")
 
+    def test_usage_is_detail_only_and_does_not_change_prompt_or_cached_data(self):
+        exact = "  original,,\n"
+        self.write(
+            [
+                self.row(
+                    text=exact,
+                    nl="本地预览说明",
+                    recommended_loras=[{"file": "style/example.safetensors", "strength": 0.4}],
+                    usage={
+                        "required_loras": [{"file": "tool/camera.safetensors", "strength": -0.6}],
+                        "tested_with": "当前模型两种子",
+                    },
+                )
+            ]
+        )
+        self.assertNotIn("usage", self.lib.query({})["entries"][0])
+        detail = self.lib.entry("local:a")
+        self.assertEqual(detail["text"], exact)
+        self.assertEqual(detail["usage"]["note"], "本地预览说明")
+        self.assertEqual(detail["usage"]["preview_loras"][0]["strength"], 0.4)
+        detail["usage"]["required_loras"][0]["strength"] = 8
+        self.assertEqual(self.lib.entry("local:a")["usage"]["required_loras"][0]["strength"], -0.6)
+
+    def test_bad_optional_usage_does_not_reject_valid_entry(self):
+        self.write([self.row(usage="bad", nl=["bad"], recommended_loras=[None, {}, 2])])
+        detail = self.lib.entry("local:a")
+        self.assertNotIn("usage", detail)
+        self.assertEqual(self.lib.query({})["warnings"], [])
+
+    def test_models_inherit_source_but_explicit_row_metadata_takes_precedence(self):
+        self.config["json_sources"][0]["models"] = {"anima": "verified"}
+        self.write_config()
+        self.write(
+            [self.row(), self.row("b", models={"krea2": "verified"}), self.row("c", models={})]
+        )
+        self.assertEqual(self.lib.entry("local:a")["models"], {"anima": "verified"})
+        self.assertEqual(self.lib.entry("local:b")["models"], {"krea2": "verified"})
+        self.assertEqual(self.lib.entry("local:c")["models"], {})
+
+    def test_content_model_filtering_applies_to_facets_pagination_and_random(self):
+        self.write(
+            [
+                self.row(f"entry_{n}", models={"anima" if n % 2 else "krea2": "verified"})
+                for n in range(125)
+            ]
+        )
+        result = self.lib.query({"target_model": "anima"})
+        self.assertEqual(result["total"], 62)
+        self.assertEqual(sum(result["facets"]["category"].values()), 62)
+        self.assertEqual(len(self.lib.query({"target_model": "anima", "page": "2"})["entries"]), 2)
+        self.assertEqual(
+            self.lib.query({"target_model": "anima", "model_scope": "all"})["total"], 125
+        )
+        self.assertIsNone(self.lib.query({"target_model": "moss", "random": "1"}))
+        with self.assertRaises(ValueError):
+            self.lib.query({"target_model": "made_up"})
+
+    def test_role_tags_are_not_assumed_anima_only_and_untested_is_not_incompatible(self):
+        self.config["json_sources"][0]["kind"] = "character"
+        self.write_config()
+        self.write(
+            [
+                self.row(models={"anima": "verified", "krea2": "verified"}),
+                self.row("b"),
+                self.row("c", models={"krea2": "not_recommended"}),
+            ]
+        )
+        result = self.lib.query({"kind": "character", "target_model": "krea2"})
+        self.assertEqual({e["id"] for e in result["entries"]}, {"a", "b"})
+        self.assertEqual(
+            self.lib.query({"kind": "character", "target_model": "krea2", "model_scope": "all"})[
+                "total"
+            ],
+            3,
+        )
+
+    def test_display_overlay_is_searchable_hot_reloadable_and_cannot_rewrite_body(self):
+        catalog = self.root / "display.json"
+        self.config["display_catalog"] = str(catalog)
+        self.write_config()
+        self.write([self.row(title="original title")])
+
+        def save(title):
+            catalog.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "entries": {
+                            "local:a": {
+                                "title": title,
+                                "category": "服饰主题/裙装",
+                                "text": "FORBIDDEN",
+                                "models": {"moss": "verified"},
+                                "preview_model": "MOSS preview",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        save("中文服饰")
+        detail = self.lib.entry("local:a")
+        self.assertEqual(detail["text"], "adult, solo,  garden,  sunlight, ")
+        self.assertEqual(detail["category"], "服饰主题/裙装")
+        self.assertEqual(detail["preview_model"], "MOSS preview")
+        self.assertEqual(self.lib.query({"q": "中文服饰", "target_model": "moss"})["total"], 1)
+        self.assertEqual(self.lib.query({"q": "original title"})["total"], 1)
+        save("新版中文名称")
+        self.lib._checked = 0
+        self.assertEqual(self.lib.entry("local:a")["title"], "新版中文名称")
+
+    def test_bad_optional_models_do_not_reject_original_prompt(self):
+        self.write([self.row(models={"anima": [], "unknown": "verified", "moss": "guessed"})])
+        self.assertEqual(self.lib.entry("local:a")["models"], {})
+        self.assertEqual(self.lib.query({})["warnings"], [])
+
     def test_bad_file_bad_row_duplicate_and_version_isolation(self):
         self.write([self.row(), {}, self.row()])
         self.write([self.row("b")], "b.json", schema=2)

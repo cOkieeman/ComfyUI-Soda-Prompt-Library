@@ -1,8 +1,8 @@
 import {openLibrary} from '../web/panel.js';
 import {snapshot} from '../web/model.js';
 
-const entry = (kind, id = 'a') => ({key: `${kind}:${id}`, kind, id, title: `${kind} ${id}`, text: `  ${kind} ${id}\n`, has_preview: false});
-const response = (data, status = 200) => ({ok: status < 400, status, json: async () => structuredClone(data)});
+const entry = (kind, id = 'a') => ({key: `${kind}:${id}`, kind, id, title: `${kind} ${id}`, text: `  ${kind} ${id}\n`, has_preview: false, models:{anima:'verified'}});
+const response = (data, status = 200) => ({ok: status < 400, status, json: async () => structuredClone(data?.entries ? {model_filtering:true, ...data} : data)});
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const assert = (condition, message) => {if (!condition) throw new Error(message);};
 const button = text => [...document.querySelectorAll('.soda-library button')].find(b => b.textContent === text);
@@ -22,7 +22,7 @@ function mount(options = {}) {
         if (u.searchParams.has('random')) return response(entry(kind));
         return response({entries: [entry(kind), entry(kind, 'b')], total: 120, page: Number(u.searchParams.get('page') || 1), page_size: 60, category_tree: true, facets: {}, sources: [], warnings: []});
     });
-    closePanel = openLibrary({request, getText: options.getText || (() => ''), saved: options.saved, browseState: options.browseState,
+    closePanel = openLibrary({request, getText: options.getText || (() => ''), saved: options.saved, targetModel:options.targetModel ?? 'anima', onTargetChange:options.onTargetChange, browseState: options.browseState,
         onLoad: (text, state) => {loaded = {text, state};}});
     return {request, loaded: () => loaded};
 }
@@ -352,6 +352,119 @@ test('分类导航与素材各自滚动，窄窗口无横向溢出', async () =>
     assert(nav.scrollTop > 0 && grid.scrollTop === before, '分类滚动影响素材列表');
     const panel = document.querySelector('.soda-library');
     assert(panel.scrollWidth <= panel.clientWidth + 1, '弹窗出现横向溢出');
+});
+
+test('使用条件按文本显示，与正文和预览依赖分开', async () => {
+    const base = mount(); closePanel();
+    const value = {...entry('character'), usage: {
+        required_loras: [{file:'tool/camera.safetensors',strength:-0.6}],
+        preview_loras: [{file:'style/example.safetensors',strength:0.4}],
+        note:'<img src=x onerror=alert(1)>'}};
+    mount({request: url => url.includes('/entry?') ? Promise.resolve(response(value)) :
+        url.startsWith('/userdata/') ? Promise.resolve(response({},404)) : base.request(url)});
+    await tick(); cards()[0].click(); await tick(); await tick();
+    const box = document.querySelector('.soda-usage');
+    assert(!box.hidden && box.textContent.includes('camera.safetensors · -0.6'), '必要模型未显示');
+    assert(box.textContent.includes('预览所用 LoRA（不会自动加载）'), '预览与必要依赖混淆');
+    assert(box.textContent.includes('<img') && !box.querySelector('img'), '说明被解析为HTML');
+    assert(preview() === value.text, '使用条件污染正文');
+});
+
+test('旧服务的延迟说明不能回填到其他页签', async () => {
+    const base = mount(); closePanel(); let resolveUsage;
+    mount({request: url => url.startsWith('/userdata/') ? new Promise(resolve => {resolveUsage=resolve;}) : base.request(url)});
+    await tick(); cards()[0].click(); await tick();
+    assert(resolveUsage, '没有发起兼容读取');
+    button('服饰').click(); await tick();
+    resolveUsage(response({version:1,entries:{'character:a':{text:entry('character').text,usage:{note:'过期说明'}}}}));
+    await tick(); await tick();
+    assert(document.querySelector('.soda-usage').hidden, '迟到说明跨页签回填');
+});
+
+test('预览手改进入正文和快照，源素材原文不变', async () => {
+    const state = mount(); await tick(); cards()[0].click(); await tick();
+    const editor = document.querySelector('.soda-preview');
+    editor.textContent = '  手改第一行\n手改第二行  '; editor.dispatchEvent(new Event('input'));
+    button('载入正文').click();
+    assert(state.loaded().text === '  手改第一行\n手改第二行  ', '载入时丢失手改或换行');
+    assert(state.loaded().state.draft_text === state.loaded().text, '快照缺少最终预览');
+    assert(state.loaded().state.target_model === 'anima', '快照缺少模型绑定');
+    assert(state.loaded().state.selection.character.text === entry('character').text, '手改回写了素材快照');
+    mount({saved:state.loaded().state}); await tick();
+    assert(preview() === state.loaded().text, '重新打开没有恢复手改预览');
+});
+
+test('预览手改后换素材不覆盖手改；可主动恢复组合原文', async () => {
+    mount(); await tick(); cards()[0].click(); await tick();
+    const editor = document.querySelector('.soda-preview'); editor.textContent = 'manual draft'; editor.dispatchEvent(new Event('input'));
+    cards()[1].click(); await tick();
+    assert(preview() === 'manual draft', '换素材悄悄覆盖了预览手改');
+    button('恢复组合原文').click();
+    assert(preview() === entry('character','b').text, '无法按当前组合重新合并');
+});
+
+test('工作流系列绑定控制查询；切换系列保留已选快照并阻止错配内容', async () => {
+    let family = null; const state = mount({onTargetChange:value=>{family=value;}}); await tick();
+    button('内容').click(); await tick(); cards()[0].click(); await tick();
+    const select = document.querySelector('[aria-label="工作流模型系列"]'); select.value = 'krea2'; select.dispatchEvent(new Event('change')); await tick();
+    assert(family === 'krea2', '绑定修改没有回写工作流');
+    assert(document.querySelector('.soda-model-settings summary').textContent.includes('Krea2'), '当前系列标识未更新');
+    assert(preview() === entry('content').text, '修改模型丢弃了旧快照');
+    assert(button('载入正文').disabled && state.loaded() === null, '不同模型内容可以直接载入');
+});
+
+test('其他系列内容仅查看；角色未验证可主动试用', async () => {
+    const base = mount(); closePanel();
+    mount({request:async url=>{
+        const res = await base.request(url); const data = await res.json();
+        if (data.text) data.models = {krea2:'verified'};
+        return response(data);
+    }}); await tick();
+    cards()[0].click(); await tick();
+    assert(preview() === entry('character').text, '未验证角色被判为不兼容');
+    assert(document.querySelector('.soda-model-detail').textContent.includes('Anima · 未验证'), '缺少未验证标记');
+    button('内容').click(); await tick(); cards()[0].click(); await tick();
+    assert(!document.querySelector('.soda-selected').textContent.includes('content a'), '其他系列内容被加入组合');
+    assert(!button('复制提示词').disabled && document.querySelector('.soda-raw').value === entry('content').text, '仅查看时不能复制原文');
+});
+
+test('不推荐服饰可显式试用，试用许可仅适用当前系列', async () => {
+    const base = mount(); closePanel();
+    mount({request:async url=>{
+        const res=await base.request(url); const data=await res.json();
+        if (data.text) data.models={anima:'not_recommended'};
+        return response(data);
+    }}); await tick(); button('服饰').click(); await tick(); cards()[0].click(); await tick();
+    assert(preview() === '', '未经主动试用就加入不推荐服饰');
+    button('仍要试用此素材').click();
+    assert(preview() === entry('outfit').text && !button('载入正文').disabled, '无法主动试用服饰');
+});
+
+test('旧服务不支持模型筛选时明确报错，不返回伪匹配结果', async () => {
+    mount({request:async()=>({ok:true,status:200,json:async()=>({entries:[entry('content')],total:1,page:1,page_size:60,facets:{},sources:[],warnings:[]})})}); await tick();
+    assert(cards().length === 0 && document.querySelector('.soda-status').textContent.includes('重启'), '旧服务静默忽略模型适配');
+});
+
+test('模型未绑定时可浏览，不能把组合写入未知工作流', async () => {
+    const state = mount({targetModel:''}); await tick(); cards()[0].click(); await tick();
+    assert(button('载入正文').disabled && state.loaded() === null, '未绑定工作流可直接插入');
+    assert(document.querySelector('.soda-feedback').textContent.includes('绑定'), '未绑定时没有指引');
+});
+
+test('旧快照原文和版本匹配时只补模型信息，不采用新正文', async () => {
+    const value = {...entry('content'),version:'1'}; delete value.models;
+    const base=mount(); closePanel();
+    mount({saved:snapshot({content:value}),request:async url=>url.includes('/entry?') ? response({...value,models:{anima:'verified'}}) : base.request(url)});
+    await tick(); await tick();
+    assert(preview() === value.text && !button('载入正文').disabled, '旧快照未补适配信息或正文改变');
+});
+
+test('来源正文更新时不把当前模型标记回填到旧快照', async () => {
+    const value={...entry('content'),version:'1'}; delete value.models;
+    const base=mount(); closePanel();
+    mount({saved:snapshot({content:value}),request:async url=>url.includes('/entry?') ? response({...value,text:'new source text',version:'2',models:{anima:'verified'}}) : base.request(url)});
+    await tick(); await tick();
+    assert(preview() === value.text && button('载入正文').disabled, '来源新版本覆盖了旧快照正文或验证依据');
 });
 
 document.querySelector('#run').onclick = async () => {

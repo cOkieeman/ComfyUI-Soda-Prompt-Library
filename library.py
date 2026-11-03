@@ -1,5 +1,6 @@
 """Read-only library adapters. No ComfyUI or third-party imports."""
 
+import copy
 import hashlib
 import json
 import random
@@ -14,6 +15,8 @@ from pathlib import Path
 
 KINDS = ("character", "outfit", "content")
 FILTERS = ("family", "undress", "intensity", "scene", "camera", "focal")
+MODEL_FAMILIES = ("anima", "krea2", "moss")
+MODEL_STATUSES = ("verified", "untested", "not_recommended")
 IMAGE_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -27,12 +30,64 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 
+def model_info(value):
+    """Explicit lineage/validation metadata, never inferred from prompt syntax or filename."""
+    if not isinstance(value, dict):
+        return {}
+    return {k: v for k, v in value.items() if k in MODEL_FAMILIES and v in MODEL_STATUSES}
+
+
+def matches_model(entry, target, show_other=False):
+    if not target or show_other:
+        return True
+    status = entry.metadata.get("models", {}).get(target, "untested")
+    return status == "verified" if entry.kind == "content" else status != "not_recommended"
+
+
 def contained_image(root, name):
     root = Path(root).resolve()
     path = (root / name).resolve()
     if not path.is_relative_to(root) or path.suffix.lower() not in IMAGE_TYPES:
         raise ValueError("预览路径必须位于配置的图片目录内")
     return path
+
+
+def usage_from_row(row):
+    """Optional display metadata; never appended to or parsed from prompt text."""
+    explicit = row.get("usage")
+    explicit = explicit if isinstance(explicit, dict) else {}
+    result = {}
+    for key, fallback in (
+        ("note", row.get("nl")),
+        ("preview_conditions", None),
+        ("tested_with", None),
+        ("preview_triggers", row.get("required_style_triggers")),
+    ):
+        value = explicit.get(key, fallback)
+        if isinstance(value, str) and value.strip():
+            result[key] = value
+    for key, fallback in (
+        ("preview_loras", row.get("recommended_loras")),
+        ("required_loras", row.get("required_loras")),
+    ):
+        rows = explicit.get(key, fallback)
+        if not isinstance(rows, list):
+            continue
+        items = []
+        for item in rows:
+            if not isinstance(item, dict) or not isinstance(item.get("file"), str):
+                continue
+            value = {"file": item["file"]}
+            strength = item.get("strength")
+            if type(strength) in (int, float) and float("-inf") < strength < float("inf"):
+                value["strength"] = strength
+            trigger = item.get("trigger")
+            if isinstance(trigger, str) and trigger.strip():
+                value["trigger"] = trigger
+            items.append(value)
+        if items:
+            result[key] = items
+    return result
 
 
 @dataclass
@@ -73,9 +128,15 @@ class Entry:
             key=self.key,
             metadata={k: v for k, v in self.metadata.items() if k in FILTERS},
             has_preview=self.preview is not None,
+            has_outfit=bool(self.metadata.get("has_outfit")),
+            models=dict(self.metadata.get("models", {})),
         )
         if detail:
             result["text"] = self.text
+            if self.metadata.get("usage"):
+                result["usage"] = copy.deepcopy(self.metadata["usage"])
+            if self.metadata.get("preview_model"):
+                result["preview_model"] = self.metadata["preview_model"]
         return result
 
 
@@ -90,6 +151,8 @@ class Library:
         self._signature = None
         self._checked = 0.0
         self._lock = threading.RLock()
+        self._catalog = {}
+        self._source_models = {}
 
     def config(self):
         config = {
@@ -134,6 +197,8 @@ class Library:
 
     def signature(self, config):
         paths = [self.root / "config.json"]
+        if config.get("display_catalog"):
+            paths.append(Path(config["display_catalog"]))
         if config.get("aaalice_db"):
             db = str(config["aaalice_db"])
             paths.extend(Path(p) for p in (db, db + "-wal"))
@@ -166,6 +231,23 @@ class Library:
             if not force and signature == self._signature:
                 return
             self.entries, self.warnings, self.sources = {}, [], []
+            self._catalog = {}
+            if config.get("display_catalog"):
+                try:
+                    catalog = read_json(config["display_catalog"])
+                    if (
+                        not isinstance(catalog, dict)
+                        or catalog.get("version") != 1
+                        or not isinstance(catalog.get("entries"), dict)
+                    ):
+                        raise ValueError("显示目录必须是 version 1，包含 entries 对象")
+                    self._catalog = catalog["entries"]
+                except (OSError, ValueError, TypeError) as exc:
+                    self.warn(f"显示目录不可用，保留原始名称和正文：{exc}")
+            self._source_models = {
+                s["id"]: model_info(s.get("models"))
+                for s in config.get("json_sources", []) + config.get("neons_sources", [])
+            }
             jobs = (
                 [("aaalice", "Aaalice", lambda: self.load_aaalice(config))]
                 if config.get("aaalice_db")
@@ -193,7 +275,16 @@ class Library:
                     status = "unavailable"
                     self.warn(f"{label}：{exc}")
                 self.sources.append(
-                    dict(id=source_id, label=label, status=status, count=len(self.entries) - before)
+                    dict(
+                        id=source_id,
+                        label=label,
+                        status=status,
+                        count=len(self.entries) - before,
+                        models=self._source_models.get(source_id, {}),
+                        kinds=sorted(
+                            {e.kind for e in self.entries.values() if e.source == source_id}
+                        ),
+                    )
                 )
             self._signature = signature
             self.revision = hashlib.sha256(repr(signature).encode()).hexdigest()[:16]
@@ -202,6 +293,24 @@ class Library:
         if entry.key in self.entries:
             self.warn(f"重复条目，保留先加载项：{entry.key}")
             return
+        overlay = self._catalog.get(entry.key, {})
+        if not isinstance(overlay, dict):
+            overlay = {}
+        original_title, original_category = entry.title, entry.category
+        for name in ("title", "category"):
+            value = overlay.get(name)
+            if isinstance(value, str) and value.strip():
+                setattr(entry, name, value)
+        entry.metadata["models"] = model_info(
+            overlay.get(
+                "models", entry.metadata.get("models", self._source_models.get(entry.source, {}))
+            )
+        )
+        preview_model = overlay.get("preview_model", entry.metadata.get("preview_model"))
+        if isinstance(preview_model, str) and preview_model.strip():
+            entry.metadata["preview_model"] = preview_model
+        entry.__post_init__()
+        entry.search += " " + original_title.casefold() + " " + original_category.casefold()
         self.entries[entry.key] = entry
 
     def load_aaalice(self, config):
@@ -302,6 +411,13 @@ class Library:
                         except (ValueError, TypeError) as exc:
                             self.warn(f"{entry_id} 预览不可用：{exc}")
                     metadata = {k: row.get(k) for k in (*FILTERS, "nl")}
+                    metadata["has_outfit"] = bool(row.get("outfit"))
+                    metadata["usage"] = usage_from_row(row)
+                    if "models" in row or "models" in data:
+                        metadata["models"] = model_info(row.get("models", data.get("models")))
+                    metadata["preview_model"] = row.get(
+                        "preview_model", data.get("preview_model", source.get("preview_model"))
+                    )
                     metadata["family"] = family
                     title = row.get("title", entry_id)
                     if not isinstance(title, str):
@@ -392,7 +508,11 @@ class Library:
             kind = params.get("kind", "content")
             if kind not in KINDS:
                 raise ValueError("未知素材类型")
+            target = params.get("target_model", "")
+            if target and target not in MODEL_FAMILIES:
+                raise ValueError("未知模型系列")
             pool = [e for e in self.entries.values() if e.kind == kind]
+            pool = [e for e in pool if matches_model(e, target, params.get("model_scope") == "all")]
             if params.get("source"):
                 pool = [e for e in pool if e.source == params["source"]]
             facets = {"category": dict(Counter(e.category for e in pool))}
@@ -437,6 +557,7 @@ class Library:
                 "page_size": limit,
                 "facets": facets,
                 "category_tree": True,
+                "model_filtering": True,
                 "sources": self.sources,
                 "warnings": self.warnings,
                 "revision": self.revision,
