@@ -15,7 +15,7 @@ from pathlib import Path
 
 KINDS = ("character", "outfit", "content")
 FILTERS = ("family", "undress", "intensity", "scene", "camera", "focal")
-MODEL_FAMILIES = ("anima", "krea2", "moss")
+MODEL_FAMILIES = ("anima", "krea2", "moss", "qwen")
 MODEL_STATUSES = ("verified", "untested", "not_recommended")
 IMAGE_TYPES = {
     ".png": "image/png",

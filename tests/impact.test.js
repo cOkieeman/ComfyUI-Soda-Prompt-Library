@@ -4,7 +4,7 @@ import {impactTargets, impactTarget, impactPromptText, sodaImportProblem, impact
 
 function target() {
     const node = {
-        id: 522, properties: {}, inputs: [],
+        id: 522, type: "ImpactWildcardEncode", properties: {}, inputs: [],
         widgets: [
             {name: "wildcard_text", value: "old"}, {name: "populated_text", value: "expanded"},
             {name: "mode", value: "fixed"}, {name: "seed", value: 123},
@@ -24,6 +24,19 @@ test("import updates native prompt widgets without shifting seed or widget order
     assert.equal(node.widgets[2].value, "populate");
     assert.equal(node.widgets[3].value, 123);
     assert.deepEqual(node.properties, {});
+});
+
+test("Processor targets import through the same native prompt widgets", () => {
+    const node = target();
+    node.type = "ImpactWildcardProcessor";
+    node.graph._nodes = [node];
+    const source = {properties: {soda_impact_target: "522"}, graph: node.graph};
+    assert.equal(impactTarget(source), node);
+    importImpactText(node, "original Qwen description");
+    assert.equal(impactPromptText(node), "original Qwen description");
+    assert.equal(node.widgets.find(widget => widget.name === "seed").value, 123);
+    node.inputs = [{name: "wildcard_text", link: 42}];
+    assert.throws(() => importImpactText(node, "replacement"), /外接/);
 });
 
 test("standalone source resolves its saved target and requires a choice for multiple targets", () => {

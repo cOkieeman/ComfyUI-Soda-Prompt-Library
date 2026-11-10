@@ -19,6 +19,13 @@ test("content recipes require matching validation; explicit role trials stay bou
     assert.equal(selectionProblem(role,"moss",true), "");
     assert.ok(selectionProblem(role,""));
 });
+
+test("Qwen allows unverified role trials and requires Qwen validation for content", () => {
+    assert.equal(selectionProblem({kind: "character"}, "qwen"), "");
+    assert.match(modelCaption({}, "qwen"), /Qwen Image · 未验证/);
+    assert.ok(selectionProblem({kind: "content", models: {anima: "verified"}}, "qwen"));
+    assert.equal(selectionProblem({kind: "content", models: {qwen: "verified"}}, "qwen"), "");
+});
 test("workflow snapshots retain the chosen family, original entries and edited draft", () => {
     const selection = {outfit:{key:"local:a",text:"original tags",models:{anima:"verified",moss:"untested"}}};
     const state = snapshot(selection,{target_model:"anima",draft_text:"  edited\nbody  "});

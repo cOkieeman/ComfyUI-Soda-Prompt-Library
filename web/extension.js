@@ -1,8 +1,8 @@
 import {app} from "../../scripts/app.js";
 import {api} from "../../scripts/api.js";
-import {openLibrary} from "./panel.js?v=0.4.2";
-import {restore, labels} from "./model.js?v=0.4.0";
-import {impactTargets, impactTarget, impactPromptText, sodaImportProblem, impactImportProblem, importImpactText} from "./impact.js?v=0.4.3";
+import {openLibrary} from "./panel.js?v=0.4.5";
+import {restore, labels, supportsPromptWeights} from "./model.js?v=0.4.5";
+import {impactTargets, impactTarget, impactPromptText, sodaImportProblem, impactImportProblem, importImpactText} from "./impact.js?v=0.4.5";
 
 const stylesheet = document.createElement("link");
 stylesheet.rel = "stylesheet";
@@ -53,7 +53,8 @@ function selectionSummary(node) {
             const caption = document.createElement("strong"); caption.textContent = entry.title;
             caption.title = entry.title;
             const kind = document.createElement("span"); kind.className = "soda-node-kind";
-            kind.textContent = `${labels[entry.kind]} · 权重 ${entry.weight}`;
+            const target = node.properties.soda_model_family ?? node.properties.soda_library?.target_model;
+            kind.textContent = `${labels[entry.kind]} · ${supportsPromptWeights(target) ? `权重 ${entry.weight}` : "原文"}`;
             card.append(media, caption, kind);
             grid.append(card);
         }

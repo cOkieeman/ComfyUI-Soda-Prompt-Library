@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {compose, restore, snapshot} from "../web/model.js";
+import {compose, restore, snapshot, supportsPromptWeights} from "../web/model.js";
 
 test("composition uses fixed roles, preserves whitespace and omits empty categories", () => {
     assert.equal(compose({content: {text: "garden"}, character: {text: " a,, \n"}}), " a,, \n\n\ngarden");
@@ -48,4 +48,13 @@ test("legacy snapshots migrate role order and retain original source text", () =
     const restored = restore(saved);
     assert.deepEqual(restored.map(entry => entry.kind), ["character", "content"]);
     assert.equal(compose(restored), "__soda/pose__ <lora:soda_oc:0.8>\n\nscene");
+});
+test("native language encoders receive original text while Anima retains weights", () => {
+    const selection = [{kind: "character", key: "role:1", text: "original {a|b}", weight: 1.2}];
+    for (const target of ["krea2", "moss", "qwen"]) {
+        assert.equal(supportsPromptWeights(target), false);
+        assert.equal(compose(selection, target), "original {a|b}");
+    }
+    assert.equal(compose(selection, "anima"), "(original {a|b}:1.2)");
+    assert.equal(selection[0].weight, 1.2);
 });

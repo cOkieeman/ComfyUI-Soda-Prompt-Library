@@ -1,7 +1,7 @@
-import {compose, kinds, labels, restore, snapshot} from "./model.js?v=0.4.0";
+import {compose, kinds, labels, restore, snapshot, supportsPromptWeights} from "./model.js?v=0.4.5";
 import {createCategories} from "./categories.js?v=0.3.0";
 import {usageLines} from "./usage.js";
-import {modelNames, modelCaption, modelStatus, selectionProblem, filterCaption} from "./compatibility.js";
+import {modelNames, modelCaption, modelStatus, selectionProblem, filterCaption} from "./compatibility.js?v=0.4.4";
 
 const prefix = "/soda_prompt_library";
 const filterLabels = {undress: "着装状态", intensity: "强度", scene: "场景", camera: "机位", focal: "焦段"};
@@ -32,8 +32,8 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     dialog.setAttribute("aria-label", "Soda 提示词库");
     const selection = restore(saved);
     let target = modelNames[targetModel] ? targetModel : "";
-    let showOther = false, draftText = editablePreview && typeof saved?.draft_text === "string" ? saved.draft_text : compose(selection);
-    let draftDirty = draftText !== compose(selection);
+    let showOther = false, draftText = editablePreview && typeof saved?.draft_text === "string" ? saved.draft_text : compose(selection, target);
+    let draftDirty = draftText !== compose(selection, target);
     let kind = kinds.includes(browseState.kind) ? browseState.kind : "character";
     const initialView = viewFor(kind);
     let page = initialView.page, detail = null;
@@ -219,8 +219,8 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     preview.setAttribute("aria-readonly", String(!editablePreview));
     preview.setAttribute("aria-label", editablePreview ? "合并预览，可手动修改" : "合并预览"); preview.tabIndex = 0;
     preview.addEventListener("paste", pastePlainText);
-    preview.addEventListener("input", () => {draftText = preview.innerText; draftDirty = draftText !== compose(selection); updateLoadState();});
-    const resetDraft = button("恢复组合原文", () => {draftText = compose(selection); draftDirty = false; preview.textContent = draftText; updateLoadState(); message("已恢复所选素材的原文组合，库文件未改变。");});
+    preview.addEventListener("input", () => {draftText = preview.innerText; draftDirty = draftText !== compose(selection, target); updateLoadState();});
+    const resetDraft = button("恢复组合原文", () => {draftText = compose(selection, target); draftDirty = false; preview.textContent = draftText; updateLoadState(); message("已恢复所选素材的原文组合，库文件未改变。");});
     resetDraft.title = "放弃本次预览中的手改，恢复角色、服饰、内容的原文组合";
     const expand = button("展开预览", () => {
         const value = draftText;
@@ -231,7 +231,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         const fullText = element("pre", "soda-full-text", value); fullText.tabIndex = 0; fullText.contentEditable = String(editablePreview);
         fullText.setAttribute("role", "textbox"); fullText.setAttribute("aria-multiline", "true");
         fullText.addEventListener("paste", pastePlainText);
-        fullText.addEventListener("input", () => {draftText = fullText.innerText; draftDirty = draftText !== compose(selection); preview.textContent = draftText; updateLoadState();});
+        fullText.addEventListener("input", () => {draftText = fullText.innerText; draftDirty = draftText !== compose(selection, target); preview.textContent = draftText; updateLoadState();});
         fullText.setAttribute("aria-label", "完整正文");
         closeText = () => {textDialog.close(); textDialog.remove(); closeText = null; expand.focus({preventScroll: true});};
         const copyAll = button("复制全文", async () => {
@@ -315,6 +315,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     function updateSelection() {
         const scroll = sideScroll.scrollTop;
         selected.replaceChildren();
+        if (!supportsPromptWeights(target)) selected.append(element("p", "soda-muted", "当前模型按原文组合，数值权重不可用。"));
         selectionCount.textContent = `${selection.length} 项`;
         for (const [index, entry] of selection.entries()) {
             const row = element("div", "soda-selection-row");
@@ -354,10 +355,12 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
             const name = button(entry.title, () => inspectSelected(entry), "soda-selection-name");
             name.title = "查看已选原文";
             caption.append(name, element("span", "soda-model-badge", modelCaption(entry, target)));
-            const weightLabel = element("label", "soda-weight", "权重");
+            const weightLabel = element("label", "soda-weight", supportsPromptWeights(target) ? "权重" : "原文");
             const weight = element("input");
             weight.type = "number"; weight.min = "0"; weight.max = "20"; weight.step = "0.05";
-            weight.value = entry.weight ?? 1;
+            weight.value = supportsPromptWeights(target) ? entry.weight ?? 1 : 1;
+            weight.disabled = !supportsPromptWeights(target);
+            if (weight.disabled) weight.title = "当前模型的原生编码器按原文读取，不解析数值权重。";
             weight.setAttribute("aria-label", `${entry.title} 权重`);
             weight.addEventListener("change", () => {
                 if (!weight.validity.valid || weight.value === "") {weight.value = entry.weight ?? 1; return;}
@@ -377,7 +380,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         sideScroll.scrollTop = scroll;
     }
     function updatePreview() {
-        if (!draftDirty) draftText = compose(selection);
+        if (!draftDirty) draftText = compose(selection, target);
         preview.textContent = draftText;
         preview.dataset.placeholder = "按当前列表顺序合并，可自由手改";
         updateLoadState();

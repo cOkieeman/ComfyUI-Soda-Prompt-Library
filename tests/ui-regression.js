@@ -473,7 +473,7 @@ test('模型库是唯一日常选择器；旧来源筛选不再隐藏其他库',
     mount({browseState:{kind:'content',content:{source:'old_photography'}},request:url=>{urls.push(url);return base.request(url);}}); await tick();
     const picker=document.querySelector('[aria-label="模型库"]');
     assert(picker && !document.querySelector('[aria-label="数据源"]') && !document.querySelector('.soda-model-settings'), '模型选择与来源选择仍然重复');
-    assert([...picker.options].map(o=>o.value).join(',') === ',anima,krea2,moss', '模型库选项不完整');
+    assert([...picker.options].map(o=>o.value).join(',') === ',anima,krea2,moss,qwen', '模型库选项不完整');
     assert(!new URL(urls[0],location.origin).searchParams.has('source'), '旧隐藏来源筛选仍在限制列表');
     picker.value='krea2';picker.dispatchEvent(new Event('change'));await tick();
     button('服饰').click();await tick();button('角色').click();await tick();
@@ -537,6 +537,20 @@ test('选材面板模式只读预览，按素材组合生成正文', async () =>
     cards()[1].click(); await tick();
     button('应用所选组合').click();
     assert(state.loaded().text===entry('character').text+'\n\n'+entry('character','b').text, '应用结果与素材组合不一致');
+});
+
+test('原生语言编码器按原文组合，切回 Anima 恢复保存的权重', async () => {
+    const role = {...entry('character'),weight:1.25};
+    for (const targetModel of ['krea2','moss','qwen']) {
+        mount({saved:snapshot([role]),targetModel,editablePreview:false}); await tick();
+        const weight = document.querySelector('.soda-weight input');
+        assert(weight.disabled && weight.value==='1', '当前系列仍可调整无效数值权重');
+        assert(preview()===role.text, '原文组合带入了括号权重');
+        const picker=document.querySelector('[aria-label="模型库"]');
+        picker.value='anima';picker.dispatchEvent(new Event('change'));await tick();
+        assert(!document.querySelector('.soda-weight input').disabled && preview()===`(${role.text}:1.25)`, '切回 Anima 后保存的权重丢失');
+        closePanel();
+    }
 });
 
 document.querySelector('#run').onclick = async () => {

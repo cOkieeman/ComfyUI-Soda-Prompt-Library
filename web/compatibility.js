@@ -1,4 +1,4 @@
-export const modelNames = {anima: "Anima", krea2: "Krea2", moss: "MOSS"};
+export const modelNames = {anima: "Anima", krea2: "Krea2", moss: "MOSS", qwen: "Qwen Image"};
 export const statusNames = {verified: "已验证", untested: "未验证", not_recommended: "不推荐"};
 
 export function modelStatus(entry, target) {

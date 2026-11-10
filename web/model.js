@@ -6,10 +6,14 @@ function entries(selection) {
     return kinds.flatMap(kind => selection?.[kind] ? [{...selection[kind], kind}] : []);
 }
 
-export function compose(selection) {
+export function supportsPromptWeights(target) {
+    return !["krea2", "moss", "qwen"].includes(target);
+}
+
+export function compose(selection, target = "") {
     return entries(selection).filter(entry => entry.text !== "").map(entry => {
         const weight = entry.weight ?? 1;
-        return weight === 1 ? entry.text : `(${entry.text}:${weight})`;
+        return weight === 1 || !supportsPromptWeights(target) ? entry.text : `(${entry.text}:${weight})`;
     }).join("\n\n");
 }
 

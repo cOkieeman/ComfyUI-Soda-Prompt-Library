@@ -116,6 +116,19 @@ class LibraryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.lib.query({"target_model": "made_up"})
 
+    def test_qwen_metadata_and_filtering_keep_other_family_content_separate(self):
+        self.write(
+            [
+                self.row("qwen", models={"qwen": "verified"}),
+                self.row("anima", models={"anima": "verified"}),
+                self.row("unknown"),
+            ]
+        )
+        result = self.lib.query({"kind": "content", "target_model": "qwen"})
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["entries"][0]["id"], "qwen")
+        self.assertEqual(self.lib.entry("local:qwen")["models"], {"qwen": "verified"})
+
     def test_role_tags_are_not_assumed_anima_only_and_untested_is_not_incompatible(self):
         self.config["json_sources"][0]["kind"] = "character"
         self.write_config()

@@ -8,7 +8,7 @@ class SodaPromptLibrary(io.ComfyNode):
             node_id="SodaPromptLibrary",
             display_name="Soda 提示词库",
             category="Soda/Prompt",
-            description="选择本地角色、服饰和内容，载入后自由修改。保存正文快照，不改写源库。",
+            description="看图选择本地角色、服饰和内容，展示组合后导入原生 Impact 编辑。组合快照随工作流保存。",
             inputs=[io.String.Input("text", default="", multiline=True, dynamic_prompts=False)],
             outputs=[io.String.Output("text", display_name="正文")],
         )

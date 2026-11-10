@@ -1,10 +1,10 @@
-import {compose, restore} from "./model.js";
+import {compose, restore} from "./model.js?v=0.4.5";
 
 export function sodaImportProblem(source) {
     const selection = restore(source.properties.soda_library);
     if (!selection.length) return "请先在词库选择素材并应用组合";
     const text = source.widgets.find(widget => widget.name === "text").value ?? "";
-    const selectedText = compose(selection).replace(/\r\n?/g, "\n");
+    const selectedText = compose(selection, source.properties.soda_model_family ?? source.properties.soda_library?.target_model).replace(/\r\n?/g, "\n");
     if (text.replace(/\r\n?/g, "\n") !== selectedText) return "所选素材与历史正文不同，请打开词库并应用当前组合后再导入";
     return "";
 }
@@ -21,7 +21,7 @@ export function impactImportProblem(node) {
 }
 
 export function impactTargets(source) {
-    return source.graph?._nodes.filter(node => node.type === "ImpactWildcardEncode") ?? [];
+    return source.graph?._nodes.filter(node => ["ImpactWildcardEncode", "ImpactWildcardProcessor"].includes(node.type)) ?? [];
 }
 
 export function impactTarget(source) {
