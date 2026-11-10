@@ -1,23 +1,26 @@
 export const kinds = ["character", "outfit", "content"];
 export const labels = {character: "角色", outfit: "服饰", content: "内容"};
 
+function entries(selection) {
+    if (Array.isArray(selection)) return selection;
+    return kinds.flatMap(kind => selection?.[kind] ? [{...selection[kind], kind}] : []);
+}
+
 export function compose(selection) {
-    return kinds.map(kind => selection[kind]?.text ?? "").filter(text => text !== "").join("\n\n");
+    return entries(selection).filter(entry => entry.text !== "").map(entry => {
+        const weight = entry.weight ?? 1;
+        return weight === 1 ? entry.text : `(${entry.text}:${weight})`;
+    }).join("\n\n");
 }
 
 export function snapshot(selection, options = {}) {
-    return {version: 1, selection: JSON.parse(JSON.stringify(selection)), ...options};
+    return {version: 2, selection: JSON.parse(JSON.stringify(entries(selection))), ...options};
 }
 
 export function restore(value) {
-    const selection = {};
-    if (value?.version !== 1) return selection;
-    for (const kind of kinds) {
-        const entry = value.selection?.[kind];
-        if (entry && typeof entry.text === "string" && typeof entry.key === "string") {
-            // ComfyUI may wrap saved properties in reactive Proxies after loading.
-            selection[kind] = JSON.parse(JSON.stringify(entry));
-        }
-    }
-    return selection;
+    if (![1, 2].includes(value?.version)) return [];
+    // JSON cloning also accepts the reactive proxies used by the ComfyUI frontend.
+    return JSON.parse(JSON.stringify(entries(value.selection))).filter(entry =>
+        entry && kinds.includes(entry.kind) && typeof entry.text === "string" && typeof entry.key === "string"
+    ).map(entry => ({...entry, weight: Number.isFinite(entry.weight) && entry.weight >= 0 && entry.weight <= 20 ? entry.weight : 1}));
 }

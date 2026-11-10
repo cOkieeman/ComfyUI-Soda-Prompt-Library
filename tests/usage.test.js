@@ -16,7 +16,7 @@ test("preview models are presented separately from required models without alter
     assert.ok(usageLines(usage).includes("example.safetensors · 0.4"));
     const saved = snapshot(selection);
     usage.required_loras[0].strength = 5;
-    assert.equal(saved.selection.content.usage.required_loras[0].strength, -0.6);
+    assert.equal(saved.selection[0].usage.required_loras[0].strength, -0.6);
     assert.equal(compose(saved.selection), entry.text);
 });
 

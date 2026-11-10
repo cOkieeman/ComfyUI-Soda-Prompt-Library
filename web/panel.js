@@ -1,4 +1,4 @@
-import {compose, kinds, labels, restore, snapshot} from "./model.js?v=0.3.0";
+import {compose, kinds, labels, restore, snapshot} from "./model.js?v=0.4.0";
 import {createCategories} from "./categories.js?v=0.3.0";
 import {usageLines} from "./usage.js";
 import {modelNames, modelCaption, modelStatus, selectionProblem, filterCaption} from "./compatibility.js";
@@ -26,13 +26,13 @@ function pastePlainText(event) {
     document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
 }
 
-export function openLibrary({request, getText, saved, targetModel = saved?.target_model ?? "", onTargetChange = () => {}, browseState = {}, onLoad, onClose = () => {}}) {
+export function openLibrary({request, getText, saved, targetModel = saved?.target_model ?? "", onTargetChange = () => {}, browseState = {}, onLoad, onClose = () => {}, loadLabel = "载入正文", importProblem = () => "", editablePreview = true}) {
     const oldFocus = document.activeElement;
     const dialog = element("dialog", "soda-library");
     dialog.setAttribute("aria-label", "Soda 提示词库");
     const selection = restore(saved);
     let target = modelNames[targetModel] ? targetModel : "";
-    let showOther = false, draftText = typeof saved?.draft_text === "string" ? saved.draft_text : compose(selection);
+    let showOther = false, draftText = editablePreview && typeof saved?.draft_text === "string" ? saved.draft_text : compose(selection);
     let draftDirty = draftText !== compose(selection);
     let kind = kinds.includes(browseState.kind) ? browseState.kind : "character";
     const initialView = viewFor(kind);
@@ -42,9 +42,10 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     let pendingFilterScroll = initialView.filterScroll;
     let categoryTreeSupported = false;
     let closed = false, searchTimer, closeImage, closeText;
+    let choiceQueue = Promise.resolve(), selectionEpoch = 0;
     const heading = element("header", "soda-head");
     const headingText = element("div");
-    headingText.append(element("h2", "", "Soda 提示词库"), element("p", "soda-muted", "选好素材，预览后载入。原文保留，正文由你修改。"));
+    headingText.append(element("h2", "", "Soda 提示词库"), element("p", "soda-muted", editablePreview ? "多选素材 · 拖动排序 · 调整权重 · 预览后导入" : "多选素材 · 拖动排序 · 调整权重 · 应用到选材面板"));
     const close = () => {
         if (closed) return;
         saveView();
@@ -101,7 +102,8 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
             renderUsage(null);
             detailTitle.textContent = "条目原文";
             detailModel.textContent = ""; tryAnyway.hidden = true;
-            if (selection[kind]) inspect(selection[kind]);
+            const picked = selection.findLast(entry => entry.kind === kind);
+            if (picked) inspect(picked);
             for (const k of kinds) tabButtons[k].setAttribute("aria-pressed", String(k === kind));
             random.hidden = kind !== "content";
             query(view.scrollTop);
@@ -172,14 +174,17 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
 
     const side = element("aside", "soda-side");
     const sideScroll = element("div", "soda-side-scroll");
-    sideScroll.append(element("h3", "", "当前组合"));
+    const selectionHeading = element("div", "soda-selection-heading");
+    const selectionCount = element("span", "soda-muted");
+    selectionHeading.append(element("h3", "", "当前组合"), selectionCount);
+    sideScroll.append(selectionHeading, element("p", "soda-muted", "拖动左侧手柄排序；聚焦手柄后按 Alt＋方向键也可移动。"));
     const selected = element("div", "soda-selected");
     const sourceStatus = element("p", "soda-muted"); sourceStatus.hidden = true;
     const rawDetails = element("details", "soda-raw-details");
     const detailTitle = element("summary", "", "条目原文");
     const raw = element("textarea", "soda-raw"); raw.readOnly = true;
     const detailModel = element("p", "soda-model-detail");
-    const tryAnyway = button("仍要试用此素材", () => detail && choose(detail, true)); tryAnyway.hidden = true;
+    const tryAnyway = button("仍要试用此素材", () => detail && choose(detail, {allowDiscouraged: true})); tryAnyway.hidden = true;
     const usageDetails = element("details", "soda-usage"); usageDetails.hidden = true;
     const usageTitle = element("summary", "", "使用条件与说明");
     const usageBody = element("div", "soda-usage-body");
@@ -210,8 +215,9 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     const detailActions = element("div", "soda-detail-actions"); detailActions.append(copy, enlarge);
     rawDetails.append(detailTitle, raw);
     const preview = element("pre", "soda-preview");
-    preview.contentEditable = "true"; preview.setAttribute("role", "textbox"); preview.setAttribute("aria-multiline", "true");
-    preview.setAttribute("aria-label", "合并预览，可手动修改"); preview.tabIndex = 0;
+    preview.contentEditable = String(editablePreview); preview.setAttribute("role", "textbox"); preview.setAttribute("aria-multiline", "true");
+    preview.setAttribute("aria-readonly", String(!editablePreview));
+    preview.setAttribute("aria-label", editablePreview ? "合并预览，可手动修改" : "合并预览"); preview.tabIndex = 0;
     preview.addEventListener("paste", pastePlainText);
     preview.addEventListener("input", () => {draftText = preview.innerText; draftDirty = draftText !== compose(selection); updateLoadState();});
     const resetDraft = button("恢复组合原文", () => {draftText = compose(selection); draftDirty = false; preview.textContent = draftText; updateLoadState(); message("已恢复所选素材的原文组合，库文件未改变。");});
@@ -222,7 +228,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         const textDialog = element("dialog", "soda-text-dialog");
         textDialog.setAttribute("aria-label", "完整合并预览");
         const textHeading = element("header", "soda-text-head");
-        const fullText = element("pre", "soda-full-text", value); fullText.tabIndex = 0; fullText.contentEditable = "true";
+        const fullText = element("pre", "soda-full-text", value); fullText.tabIndex = 0; fullText.contentEditable = String(editablePreview);
         fullText.setAttribute("role", "textbox"); fullText.setAttribute("aria-multiline", "true");
         fullText.addEventListener("paste", pastePlainText);
         fullText.addEventListener("input", () => {draftText = fullText.innerText; draftDirty = draftText !== compose(selection); preview.textContent = draftText; updateLoadState();});
@@ -238,11 +244,11 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         document.body.append(textDialog); textDialog.showModal();
     });
     const previewHeading = element("div", "soda-preview-heading");
-    previewHeading.append(element("h3", "", "合并预览 · 可手改"), expand);
+    previewHeading.append(element("h3", "", editablePreview ? "合并预览 · 可手改" : "合并预览"), expand);
     const feedback = element("p", "soda-feedback"); feedback.setAttribute("role", "status");
     const confirmation = element("div", "soda-confirm"); confirmation.hidden = true;
-    confirmation.append(element("p", "", "将整段替换当前正文，包括你的手改。"), button("确认替换正文", commit, "soda-primary"), button("保留当前正文", () => {confirmation.hidden = true;}));
-    const load = button("载入正文", () => {
+    confirmation.append(element("p", "", editablePreview ? "将整段替换当前正文，包括你的手改。" : "将用当前选择更新 Soda 节点保存的组合。"), button(editablePreview ? "确认替换正文" : "确认应用组合", commit, "soda-primary"), button(editablePreview ? "保留当前正文" : "保留现有组合", () => {confirmation.hidden = true;}));
+    const load = button(loadLabel, () => {
         if (!draftText || loadProblem()) return;
         if (getText() && getText() !== draftText) confirmation.hidden = false;
         else commit();
@@ -260,7 +266,8 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     document.body.append(dialog);
     dialog.showModal();
     updateSelection();
-    if (selection[kind]) inspect(selection[kind]);
+    const initialEntry = selection.findLast(entry => entry.kind === kind);
+    if (initialEntry) inspect(initialEntry);
     query(initialView.scrollTop); checkSaved(); search.focus();
 
     function viewFor(item) {
@@ -282,8 +289,10 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     }
     function message(text) {feedback.textContent = text;}
     function loadProblem() {
+        const destinationProblem = importProblem();
+        if (destinationProblem) return destinationProblem;
         if (!target) return "请先选择上方模型库，绑定工作流的模型系列。";
-        return Object.values(selection).map(entry => selectionProblem(entry, target, entry.model_trial === target)).find(Boolean) ?? "";
+        return selection.map(entry => selectionProblem(entry, target, entry.model_trial === target)).find(Boolean) ?? "";
     }
     function updateLoadState() {
         const problem = loadProblem();
@@ -291,52 +300,104 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         expand.disabled = !draftText; resetDraft.hidden = !draftDirty;
         confirmation.hidden = true;
     }
-    function commit() {if (loadProblem()) {message(loadProblem()); return;} onLoad(draftText, snapshot(selection, {target_model: target, draft_text: draftText})); close();}
+    function commit() {
+        if (loadProblem()) {message(loadProblem()); return;}
+        try {onLoad(draftText, snapshot(selection, {target_model: target, draft_text: draftText})); close();}
+        catch (error) {message(error.message); updateLoadState();}
+    }
+    function moveSelection(key, index) {
+        const from = selection.findIndex(entry => entry.key === key);
+        if (from < 0 || index < 0 || index >= selection.length || from === index) return;
+        selection.splice(index, 0, selection.splice(from, 1)[0]);
+        updateSelection();
+        selected.querySelector(`[data-key="${CSS.escape(key)}"] .soda-drag-handle`)?.focus({preventScroll: true});
+    }
     function updateSelection() {
+        const scroll = sideScroll.scrollTop;
         selected.replaceChildren();
-        for (const item of kinds) {
+        selectionCount.textContent = `${selection.length} 项`;
+        for (const [index, entry] of selection.entries()) {
             const row = element("div", "soda-selection-row");
-            const entry = selection[item];
+            row.dataset.key = entry.key;
+            const handle = button("", () => {}, "soda-drag-handle");
+            handle.innerHTML = '<svg viewBox="0 0 16 20" width="12" height="18" aria-hidden="true"><path d="M5 4h1m4 0h1M5 10h1m4 0h1M5 16h1m4 0h1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+            handle.draggable = true;
+            handle.setAttribute("aria-label", `排序 ${entry.title}`);
+            handle.addEventListener("dragstart", event => {
+                event.dataTransfer.setData("application/x-soda-selection", entry.key);
+                event.dataTransfer.effectAllowed = "move";
+                row.classList.add("is-dragging");
+            });
+            handle.addEventListener("dragend", () => {
+                for (const item of selected.children) item.classList.remove("is-dragging", "is-drop-target");
+            });
+            handle.addEventListener("keydown", event => {
+                if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+                event.preventDefault();
+                moveSelection(entry.key, index + (event.key === "ArrowUp" ? -1 : 1));
+            });
+            row.addEventListener("dragover", event => {
+                if (!event.dataTransfer.types.includes("application/x-soda-selection")) return;
+                event.preventDefault(); row.classList.add("is-drop-target");
+            });
+            row.addEventListener("dragleave", () => row.classList.remove("is-drop-target"));
+            row.addEventListener("drop", event => {
+                const key = event.dataTransfer.getData("application/x-soda-selection");
+                if (!key) return;
+                event.preventDefault(); moveSelection(key, index);
+            });
             const caption = element("div", "soda-selection-caption");
-            caption.append(element("span", "soda-muted", labels[item]));
-            if (entry) {
-                const thumb = button("", () => entry.has_preview ? showImage(entry, thumb) : inspectSelected(entry), "soda-selection-thumb");
-                thumb.setAttribute("aria-label", `${entry.has_preview ? "查看大图" : "查看原文"}：${entry.title}`);
-                thumb.append(mediaFor(entry, entry.version));
-                row.append(thumb);
-                const name = button(entry.title, () => inspectSelected(entry), "soda-selection-name");
-                name.title = "查看已选原文";
-                caption.append(name);
-                caption.append(element("span", "soda-model-badge", modelCaption(entry, target)));
-            } else {
-                row.classList.add("soda-selection-empty");
-                caption.append(element("span", "soda-muted", "未选择"));
-            }
-            row.append(caption);
-            if (entry) row.append(button("移除", () => {
-                if (item === kind) {detailId++; random.disabled = total === 0;}
-                delete selection[item]; updateSelection(); markSelected();
-            }));
+            caption.append(element("span", "soda-muted", labels[entry.kind]));
+            const thumb = button("", () => entry.has_preview ? showImage(entry, thumb) : inspectSelected(entry), "soda-selection-thumb");
+            thumb.setAttribute("aria-label", `${entry.has_preview ? "查看大图" : "查看原文"}：${entry.title}`);
+            thumb.append(mediaFor(entry, entry.version));
+            const name = button(entry.title, () => inspectSelected(entry), "soda-selection-name");
+            name.title = "查看已选原文";
+            caption.append(name, element("span", "soda-model-badge", modelCaption(entry, target)));
+            const weightLabel = element("label", "soda-weight", "权重");
+            const weight = element("input");
+            weight.type = "number"; weight.min = "0"; weight.max = "20"; weight.step = "0.05";
+            weight.value = entry.weight ?? 1;
+            weight.setAttribute("aria-label", `${entry.title} 权重`);
+            weight.addEventListener("change", () => {
+                if (!weight.validity.valid || weight.value === "") {weight.value = entry.weight ?? 1; return;}
+                entry.weight = weight.valueAsNumber;
+                updatePreview();
+            });
+            weightLabel.append(weight);
+            row.append(handle, thumb, caption, weightLabel, button("移除", () => {
+                detailId++; selectionEpoch++; choiceQueue = Promise.resolve(); random.disabled = total === 0;
+                selection.splice(selection.indexOf(entry), 1);
+                updateSelection(); markSelected();
+            }, "soda-remove"));
             selected.append(row);
         }
-        const scroll = sideScroll.scrollTop;
-        if (!draftDirty) draftText = compose(selection);
-        preview.textContent = draftText;
-        preview.dataset.placeholder = "角色 → 服饰 → 内容，可跳过任一类";
-        updateLoadState();
+        if (!selection.length) selected.append(element("p", "soda-selection-empty soda-muted", "点击素材卡片加入组合，同类可选多项。"));
+        updatePreview();
         sideScroll.scrollTop = scroll;
     }
-    function markSelected() {
-        for (const card of grid.children) card.setAttribute("aria-pressed", String(card.dataset.key === selection[kind]?.key));
+    function updatePreview() {
+        if (!draftDirty) draftText = compose(selection);
+        preview.textContent = draftText;
+        preview.dataset.placeholder = "按当前列表顺序合并，可自由手改";
+        updateLoadState();
     }
-    function choose(entry, allowDiscouraged = false) {
+    function markSelected() {
+        const keys = new Set(selection.map(entry => entry.key));
+        for (const card of grid.children) card.setAttribute("aria-pressed", String(keys.has(card.dataset.key)));
+    }
+    function choose(entry, {allowDiscouraged = false, toggle = false} = {}) {
         if (entry.kind !== kind) return;
-        const problem = selectionProblem(entry, target, allowDiscouraged);
+        const index = selection.findIndex(item => item.key === entry.key);
+        const problem = index >= 0 && toggle ? "" : selectionProblem(entry, target, allowDiscouraged);
         if (problem) {inspect(entry); message(problem); return;}
         if (allowDiscouraged) entry = {...entry, model_trial: target};
-        selection[kind] = structuredClone(entry); inspect(entry);
+        if (index >= 0 && toggle) selection.splice(index, 1);
+        else if (index < 0) selection.push({...structuredClone(entry), weight: 1});
+        else if (allowDiscouraged) selection[index].model_trial = target;
+        inspect(entry);
         updateSelection(); markSelected();
-        message(draftDirty ? "组合已改变，已保留预览手改；点击“恢复组合原文”可重新合并。" :
+        message(draftDirty ? "组合已改变，已保留预览手改；点击“恢复组合原文”可重新合并。" : index >= 0 && toggle ? "已从待选组合移除此素材。" :
             modelStatus(entry, target) === "verified" ? "已加入待选组合，正文尚未改变。" : "已加入待选组合；此素材在当前系列未验证，请自行试用。");
     }
     function inspect(entry) {
@@ -435,6 +496,7 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
         dialog.scrollTop = parentScroll;
     }
     function invalidateBrowse() {
+        choiceQueue = Promise.resolve();
         controller?.abort(); queryId++; detailId++; total = 0;
         loading = true;
         grid.style.setProperty('--soda-loading-height', `${grid.getBoundingClientRect().height}px`);
@@ -464,10 +526,16 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
             grid.replaceChildren();
             for (const entry of result.entries) {
                 const card = button("", async () => {
-                    const detailTicket = ++detailId;
+                    detailId++;
+                    const browsingTicket = queryId, epoch = selectionEpoch;
                     random.disabled = total === 0;
-                    try {const value = await json(prefix + "/entry?" + new URLSearchParams({key: entry.key})); if (!closed && detailTicket === detailId) choose(value);}
-                    catch (error) {if (!closed && detailTicket === detailId) message(error.message);}
+                    const result = json(prefix + "/entry?" + new URLSearchParams({key: entry.key})).then(value => ({value}), error => ({error}));
+                    choiceQueue = choiceQueue.then(async () => {
+                        const {value, error} = await result;
+                        if (closed || browsingTicket !== queryId || epoch !== selectionEpoch) return;
+                        if (error) message(error.message);
+                        else choose(value, {toggle: true});
+                    });
                 }, "soda-card");
                 card.dataset.key = entry.key;
                 const category = element("span", "soda-category", entry.category?.split('/').at(-1));
@@ -492,10 +560,10 @@ export function openLibrary({request, getText, saved, targetModel = saved?.targe
     }
     async function checkSaved() {
         const missing = [];
-        for (const [item, entry] of Object.entries(selection)) {
+        for (const entry of [...selection]) {
             try {
                 const current = await json(prefix + "/entry?" + new URLSearchParams({key: entry.key}));
-                if (!closed && selection[item] === entry && current.text === entry.text && String(current.version) === String(entry.version)) {
+                if (!closed && selection.includes(entry) && current.text === entry.text && String(current.version) === String(entry.version)) {
                     // Enrich legacy snapshots only when their exact source version still matches.
                     // Never replace saved text or infer validation for a changed source.
                     if (!entry.models) entry.models = current.models;

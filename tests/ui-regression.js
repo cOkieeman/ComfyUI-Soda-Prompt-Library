@@ -22,7 +22,7 @@ function mount(options = {}) {
         if (u.searchParams.has('random')) return response(entry(kind));
         return response({entries: [entry(kind), entry(kind, 'b')], total: 120, page: Number(u.searchParams.get('page') || 1), page_size: 60, category_tree: true, facets: {}, sources: [], warnings: []});
     });
-    closePanel = openLibrary({request, getText: options.getText || (() => ''), saved: options.saved, targetModel:options.targetModel ?? 'anima', onTargetChange:options.onTargetChange, browseState: options.browseState,
+    closePanel = openLibrary({request, getText: options.getText || (() => ''), saved: options.saved, targetModel:options.targetModel ?? 'anima', onTargetChange:options.onTargetChange, browseState: options.browseState, editablePreview:options.editablePreview, loadLabel:options.loadLabel,
         onLoad: (text, state) => {loaded = {text, state};}});
     return {request, loaded: () => loaded};
 }
@@ -56,13 +56,14 @@ test('源条目删除仍保留组合快照', async () => {
     assert(preview() === entry('character').text, '删除来源导致快照丢失');
     assert(document.querySelector('.soda-side-scroll').textContent.includes('来源暂不可用'), '缺少来源提示');
 });
-test('快速点击时只接受最后一条响应', async () => {
+test('快速多选按点击顺序组合，响应倒序也不会丢条目', async () => {
     const base = mount(); closePanel(); const pending = [];
     mount({request: url => url.includes('/entry?') ? new Promise(resolve => pending.push(resolve)) : base.request(url)});
     await tick(); cards()[0].click(); cards()[1].click();
     pending[1](response(entry('character', 'b'))); await tick();
     pending[0](response(entry('character'))); await tick();
-    assert(preview() === entry('character', 'b').text, '较早响应覆盖了最后选择');
+    await tick();
+    assert(preview() === entry('character').text + '\n\n' + entry('character', 'b').text, '多选顺序改变或条目丢失');
 });
 test('移除组合后，未完成的详情请求不能恢复该项', async () => {
     const base = mount(); closePanel(); let resolveDetail;
@@ -389,7 +390,7 @@ test('预览手改进入正文和快照，源素材原文不变', async () => {
     assert(state.loaded().text === '  手改第一行\n手改第二行  ', '载入时丢失手改或换行');
     assert(state.loaded().state.draft_text === state.loaded().text, '快照缺少最终预览');
     assert(state.loaded().state.target_model === 'anima', '快照缺少模型绑定');
-    assert(state.loaded().state.selection.character.text === entry('character').text, '手改回写了素材快照');
+    assert(state.loaded().state.selection[0].text === entry('character').text, '手改回写了素材快照');
     mount({saved:state.loaded().state}); await tick();
     assert(preview() === state.loaded().text, '重新打开没有恢复手改预览');
 });
@@ -400,7 +401,7 @@ test('预览手改后换素材不覆盖手改；可主动恢复组合原文', as
     cards()[1].click(); await tick();
     assert(preview() === 'manual draft', '换素材悄悄覆盖了预览手改');
     button('恢复组合原文').click();
-    assert(preview() === entry('character','b').text, '无法按当前组合重新合并');
+    assert(preview() === entry('character').text + '\n\n' + entry('character','b').text, '无法按当前多选组合重新合并');
 });
 
 test('工作流系列绑定控制查询；切换系列保留已选快照并阻止错配内容', async () => {
@@ -478,6 +479,64 @@ test('模型库是唯一日常选择器；旧来源筛选不再隐藏其他库',
     button('服饰').click();await tick();button('角色').click();await tick();
     assert(picker.value==='krea2', '切页签后模型库选择丢失');
     assert(urls.filter(url=>url.includes('/index?')).slice(-3).every(url=>new URL(url,location.origin).searchParams.get('target_model')==='krea2'), '三个页签没有共用模型库范围');
+});
+
+test('同类多选、逐条权重与键盘排序进入快照并恢复', async () => {
+    const state = mount(); await tick();
+    cards()[0].click(); await tick(); cards()[1].click(); await tick();
+    assert(document.querySelectorAll('.soda-selection-row').length === 2, '同类多选丢失条目');
+    const weight = document.querySelector('.soda-weight input');
+    weight.value = '1.25'; weight.dispatchEvent(new Event('change'));
+    const handle = document.querySelector('.soda-drag-handle');
+    handle.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown',altKey:true,bubbles:true}));
+    const expected = entry('character','b').text + '\n\n(' + entry('character').text + ':1.25)';
+    assert(preview() === expected, '权重或排序没有写入组合');
+    button('载入正文').click();
+    const saved = JSON.parse(JSON.stringify(state.loaded().state));
+    assert(saved.version === 2 && saved.selection.length === 2, '多选快照没有升级');
+    mount({saved}); await tick();
+    assert(preview() === expected, '保存重载丢失顺序、原文或权重');
+    assert(document.querySelectorAll('.soda-card[aria-pressed="true"]').length === 2, '卡片多选状态没有恢复');
+});
+
+test('重复点击已选素材只移除该条，不影响同类其他素材', async () => {
+    mount(); await tick(); cards()[0].click(); await tick(); cards()[1].click(); await tick();
+    cards()[0].click(); await tick();
+    assert(preview() === entry('character','b').text, '取消单项时影响了其他素材');
+    assert(document.querySelectorAll('.soda-selection-row').length === 1, '组合数量错误');
+});
+
+test('旧页签条目请求一直等待时，新页签仍能正常加入素材', async () => {
+    const base = mount(); closePanel(); let resolveOld;
+    mount({request:url=>url.includes('key=character%3Aa') ? new Promise(resolve=>{resolveOld=resolve;}) : base.request(url)});
+    await tick(); cards()[0].click(); await tick();
+    button('服饰').click(); await tick(); cards()[0].click(); await tick();
+    assert(preview() === entry('outfit').text, '新页签仍在等待过期请求');
+    resolveOld(response(entry('character'))); await tick();
+    assert(preview() === entry('outfit').text, '过期条目在新页签回填');
+});
+
+test('随机抽到已选条目时保留原文、权重和选中状态', async () => {
+    mount(); await tick(); button('内容').click(); await tick(); cards()[0].click(); await tick();
+    const weight = document.querySelector('.soda-weight input');
+    weight.focus(); weight.value='1.3'; weight.dispatchEvent(new Event('change'));
+    assert(document.activeElement === weight, '调整权重时丢失输入焦点');
+    const before = preview();
+    button('随机一条').click(); await tick();
+    assert(preview() === before && document.querySelectorAll('.soda-selection-row').length === 1, '随机重复取消了已选素材或重置权重');
+});
+
+test('选材面板模式只读预览，按素材组合生成正文', async () => {
+    const saved=snapshot({character:entry('character')},{target_model:'anima',draft_text:'legacy manual draft'});
+    const state=mount({saved,editablePreview:false,loadLabel:'应用所选组合'}); await tick();
+    assert(preview()===entry('character').text, '只读面板使用了历史手写正文');
+    assert(document.querySelector('.soda-preview').contentEditable==='false', '只读预览仍可编辑');
+    button('展开预览').click();
+    assert(document.querySelector('.soda-full-text').contentEditable==='false', '完整预览仍可编辑');
+    document.querySelector('.soda-text-dialog').dispatchEvent(new Event('cancel',{cancelable:true}));
+    cards()[1].click(); await tick();
+    button('应用所选组合').click();
+    assert(state.loaded().text===entry('character').text+'\n\n'+entry('character','b').text, '应用结果与素材组合不一致');
 });
 
 document.querySelector('#run').onclick = async () => {

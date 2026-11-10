@@ -26,7 +26,7 @@ test("workflow snapshots retain the chosen family, original entries and edited d
     assert.equal(stored.draft_text,"  edited\nbody  ");
     assert.equal(stored.target_model,"anima");
     assert.equal(compose(restore(stored)),"original tags");
-    assert.deepEqual(restore(stored).outfit.models,selection.outfit.models);
+    assert.deepEqual(restore(stored)[0].models,selection.outfit.models);
 });
 test("filter translation changes captions without changing query identifiers", () => {
     assert.equal(filterCaption("scene","bedroom"),"卧室");
